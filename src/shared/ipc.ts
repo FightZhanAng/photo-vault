@@ -437,6 +437,31 @@ export interface LocationCluster {
   coverThumbUrl: string;
 }
 
+/** 底图上的一个点；坐标是 GCJ-02（腾讯地图的坐标系），不是 EXIF 里的 WGS-84 */
+export interface MapPoint {
+  key: string;
+  lat: number;
+  lon: number;
+}
+
+export interface MapImageRequest {
+  points: MapPoint[];
+  /** 选中的那个点的 key，会画得更大 */
+  selected: string | null;
+  /** 容器像素尺寸，主进程按它算视野和请求尺寸 */
+  width: number;
+  height: number;
+  /** 用户点 +/− 的缩放级数，叠在自动算出的视野上 */
+  zoomDelta: number;
+}
+
+export interface MapImageResult {
+  /** data:image/png;base64,... —— 不落盘、不给渲染层看任何外部 URL */
+  dataUrl: string;
+  zoom: number;
+  center: { lat: number; lon: number };
+}
+
 /** 重新读取元数据的结果；located 是有经纬度的张数 */
 export interface RefreshMetaResult {
   scanned: number;
@@ -687,6 +712,9 @@ export const CH = {
     stop: 'upload:stop',
     received: 'upload:received', // 主 → 渲染 事件
   },
+  map: {
+    image: 'map:image',
+  },
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -789,5 +817,13 @@ export interface VaultApi {
     start(port?: number): Promise<IpcResult<UploadServerStatus>>;
     stop(): Promise<IpcResult<UploadServerStatus>>;
     onReceived(cb: (e: UploadReceivedEvent) => void): () => void;
+  };
+  map: {
+    /**
+     * 取一张带标记的静态底图（腾讯位置服务）。
+     * 点坐标必须已经换算成 GCJ-02；没配 Key 或取不到图会抛错，
+     * 调用方退回本地散点图，不要给用户留一张空白。
+     */
+    image(req: MapImageRequest): Promise<IpcResult<MapImageResult>>;
   };
 }

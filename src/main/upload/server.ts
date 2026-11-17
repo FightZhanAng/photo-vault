@@ -53,6 +53,27 @@ let emitter: ((e: UploadReceivedEvent) => void) | null = null;
 
 const sessions = new Map<string, Session>();
 
+/**
+ * 同一个上传会话的写分片请求必须串行。
+ *
+ * 客户端重试时经常出现「旧请求还挂在网上、新请求已经带着同一个 offset 到了」：
+ * 两边都 statSync 到同样的字节数，都通过连续性检查，然后各自以追加模式写进去,
+ * 文件里多出一段重复数据 —— 最后 complete 时长边对不上，整份白传。
+ * 串行之后，后到的那条会看到真实长度，老老实实拿 409 + 正确的 offset。
+ */
+const writeChains = new Map<string, Promise<unknown>>();
+
+function serialize<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  const prev = writeChains.get(key) ?? Promise.resolve();
+  const run = prev.then(fn, fn);
+  const tail = run.catch(() => undefined);
+  writeChains.set(key, tail);
+  void tail.then(() => {
+    if (writeChains.get(key) === tail) writeChains.delete(key);
+  });
+  return run;
+}
+
 export function setUploadEmitter(fn: ((e: UploadReceivedEvent) => void) | null): void {
   emitter = fn;
 }
@@ -99,6 +120,11 @@ function loadSessions(): void {
         continue;
       }
       sessions.set(meta.id, meta);
+      // .part 比声明的大小还大，说明之前有两条请求同时往同一个 offset 上
+      // 追加过（重试的旧请求没断，新一轮又来了），多出来的那段是重复数据。
+      // 这种文件永远凑不齐，留着只会让这张图每次都在 complete 时失败。
+      const part = partPath(meta.id);
+      if (existsSync(part) && statSync(part).size > meta.size) rmSync(part, { force: true });
     } catch {
       rmSync(file, { force: true });
     }
@@ -119,12 +145,18 @@ function dropSession(id: string): void {
 // HTTP 小工具
 // ---------------------------------------------------------------------------
 
-function sendJson(res: ServerResponse, code: number, body: unknown): void {
+function sendJson(
+  res: ServerResponse,
+  code: number,
+  body: unknown,
+  extra?: Record<string, string>
+): void {
   const text = JSON.stringify(body);
   res.writeHead(code, {
     'content-type': 'application/json; charset=utf-8',
     'cache-control': 'no-store',
     'access-control-allow-origin': '*',
+    ...extra,
   });
   res.end(text);
 }
@@ -259,7 +291,9 @@ function listen(p: number): Promise<Server> {
       // 客户端那边另有一道看门狗兜底，但根上得先别把连接关得太早。
       s.keepAliveTimeout = 65_000;
       s.headersTimeout = 66_000; // 必须略大于 keepAliveTimeout
-      s.requestTimeout = 120_000; // 单个分片最慢给 2 分钟，256KB 足够宽
+      // 一个 256KB 分片给 60 秒足够宽了。超时后 Node 会自己回 408 并断开，
+      // 不至于让一条永远发不完的请求把该会话的写入链一直占着。
+      s.requestTimeout = 60_000;
       s.on('connection', (socket) => socket.setKeepAlive(true, 10_000));
 
       resolve(s);
@@ -422,6 +456,13 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
     }
 
     const offset = existsSync(partPath(id)) ? statSync(partPath(id)).size : 0;
+    // 运行中也兜一次同样的底：尺寸对不上就从头传，别让这张图永远卡在
+    // 「文件不完整」上（服务是长期开着的，启动时那次清理不一定覆盖得到）
+    if (offset > size) {
+      rmSync(partPath(id), { force: true });
+      sendJson(res, 200, { uploadId: id, offset: 0 });
+      return;
+    }
     sendJson(res, 200, { uploadId: id, offset });
     return;
   }
@@ -438,12 +479,18 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
       return;
     }
     const offset = Number(url.searchParams.get('offset') ?? 0);
+    // 每条分片响应都显式关连接。
+    // 手机两次分片之间可能隔很久（切后台、锁屏、正在解码视频），期间服务端
+    // 一旦关掉空闲连接，iOS 复用它时请求会发进黑洞 —— fetch 既不 resolve
+    // 也不 reject。让服务端主动说「这条连接用完就关」，客户端就不会再去复用，
+    // 每个分片一条新连接。局域网上握手只要几毫秒，比卡死划算得多。
+    const close: Record<string, string> = { connection: 'close' };
     try {
-      const total = await appendChunk(req, partPath(id), offset, session.size);
-      sendJson(res, 200, { received: total });
+      const total = await serialize(id, () => appendChunk(req, partPath(id), offset, session.size));
+      sendJson(res, 200, { received: total }, close);
     } catch (e: any) {
       if (typeof e?.offset === 'number') {
-        sendJson(res, 409, { error: '偏移不一致', offset: e.offset });
+        sendJson(res, 409, { error: '偏移不一致', offset: e.offset }, close);
         return;
       }
       throw e;

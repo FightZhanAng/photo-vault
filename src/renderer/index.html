@@ -3,6 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      底图由主进程去取（见 src/main/map/staticMap.ts），渲染层只显示 data URL，
+      所以这里不需要给任何外部域名开口子。
+    -->
     <meta
       http-equiv="Content-Security-Policy"
       content="default-src 'self'; img-src 'self' vault: data: blob:; media-src 'self' vault: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' vault: ws://localhost:* http://localhost:*"

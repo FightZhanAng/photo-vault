@@ -43,6 +43,8 @@ export const PREF = {
   minKb: 'import.minKb',
   defaultSort: 'default.sort',
   exportFormat: 'export.format',
+  /** 腾讯位置服务的 Key，用于「地点」页的底图；留空就用本地散点图 */
+  mapKey: 'map.key',
 } as const;
 
 export function prefBool(prefs: Record<string, string>, key: string, fallback = false): boolean {

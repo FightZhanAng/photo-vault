@@ -119,6 +119,9 @@ const api: VaultApi = {
       };
     },
   },
+  map: {
+    image: (req) => call(CH.map.image, req),
+  },
 };
 
 contextBridge.exposeInMainWorld('vault', api);

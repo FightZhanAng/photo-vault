@@ -1,5 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
-import type { IpcResult, PhotoStatus } from '@shared/ipc';
+import type { IpcResult, MapImageRequest, PhotoStatus } from '@shared/ipc';
 import { CH } from '@shared/ipc';
 import { AppError, toIpcError } from '../errors';
 import { getActiveLibraryId, getDb, isOpen } from '../db';
@@ -17,6 +17,7 @@ import { exportPhotos } from '../media/exporter';
 import { exportHtmlAlbum } from '../media/htmlAlbum';
 import { renamePhotos, previewRename } from '../media/renamer';
 import { refreshPhotoMeta } from '../media/refresh';
+import { mapImage } from '../map/staticMap';
 import { saveVideoPoster } from '../media/poster';
 import { forgetRecent, readRecent, rememberLibrary } from '../recent';
 import {
@@ -285,6 +286,9 @@ export function registerIpc(): void {
   handle(CH.upload.status, () => uploadServerStatus());
   handle(CH.upload.start, (port?: number) => startUploadServer(port));
   handle(CH.upload.stop, () => stopUploadServer());
+
+  // 地点页底图：Key 只在主进程读，渲染层只拿到一张 data URL
+  handle(CH.map.image, (req: MapImageRequest) => mapImage(req));
 }
 
 function startOfToday(): number {

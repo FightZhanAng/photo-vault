@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { LocationCluster, Photo } from '@shared/ipc';
 import { api, errorText, unwrap } from '../api';
-import { useApp } from '../store';
+import { PREF, useApp } from '../store';
 import { formatDate } from '../format';
 import PhotoGrid from '../components/PhotoGrid';
 import PhotoViewer from '../components/PhotoViewer';
+import MapView from '../components/MapView';
 
 const VB_W = 1000;
 const VB_H = 400;
@@ -73,6 +74,15 @@ function coord(lat: number, lon: number): string {
 export default function LocationsPage() {
   const dataVersion = useApp((s) => s.dataVersion);
   const showToast = useApp((s) => s.showToast);
+  const prefs = useApp((s) => s.prefs);
+
+  const mapKey = (prefs[PREF.mapKey] ?? '').trim();
+  const [mapError, setMapError] = useState<string | null>(null);
+  /** 配了 Key 且没报错才用真实底图，否则退回本地散点图 —— 离线也不能开天窗 */
+  const liveMap = mapKey !== '' && mapError === null;
+
+  // 换了 Key 就重新试一次
+  useEffect(() => setMapError(null), [mapKey]);
 
   const [step, setStep] = useState(0.05);
   const [clusters, setClusters] = useState<LocationCluster[]>([]);
@@ -186,58 +196,78 @@ export default function LocationsPage() {
         </div>
       ) : (
         <div className="loc-page">
-          <div className="loc-map">
-            <svg viewBox={`0 0 ${VB_W} ${VB_H}`} preserveAspectRatio="xMidYMid meet" role="img">
-              <title>带定位照片的分布</title>
-              {/* 经纬网：让散点有比例参照 */}
-              {[0.15, 0.38, 0.62, 0.85].map((p) => (
-                <line
-                  key={`v${p}`}
-                  x1={VB_W * p}
-                  y1={0}
-                  x2={VB_W * p}
-                  y2={VB_H}
-                  className="loc-graticule"
-                />
-              ))}
-              {[0.2, 0.5, 0.8].map((p) => (
-                <line
-                  key={`h${p}`}
-                  x1={0}
-                  y1={VB_H * p}
-                  x2={VB_W}
-                  y2={VB_H * p}
-                  className="loc-graticule"
-                />
-              ))}
+          <div className={`loc-map${liveMap ? ' live' : ''}`}>
+            {liveMap ? (
+              <MapView
+                clusters={clusters}
+                selectedKey={selectedKey}
+                onStatus={setMapError}
+              />
+            ) : (
+              <>
+                <svg
+                  viewBox={`0 0 ${VB_W} ${VB_H}`}
+                  preserveAspectRatio="xMidYMid meet"
+                  role="img"
+                >
+                  <title>带定位照片的分布</title>
+                  {/* 经纬网：让散点有比例参照 */}
+                  {[0.15, 0.38, 0.62, 0.85].map((p) => (
+                    <line
+                      key={`v${p}`}
+                      x1={VB_W * p}
+                      y1={0}
+                      x2={VB_W * p}
+                      y2={VB_H}
+                      className="loc-graticule"
+                    />
+                  ))}
+                  {[0.2, 0.5, 0.8].map((p) => (
+                    <line
+                      key={`h${p}`}
+                      x1={0}
+                      y1={VB_H * p}
+                      x2={VB_W}
+                      y2={VB_H * p}
+                      className="loc-graticule"
+                    />
+                  ))}
 
-              {clusters.map((c) => {
-                const { x, y } = project(c.lat, c.lon);
-                const r = 7 + Math.min(15, Math.sqrt(c.count) * 3);
-                const on = c.key === selectedKey;
-                return (
-                  <g
-                    key={c.key}
-                    className={`loc-dot${on ? ' on' : ''}`}
-                    onClick={() => setSelectedKey(c.key)}
-                  >
-                    <circle cx={x} cy={y} r={r + 9} className="loc-hit" />
-                    <circle cx={x} cy={y} r={r} className="loc-point" />
-                    {on && <circle cx={x} cy={y} r={r + 5} className="loc-ring" />}
-                    <text x={x} y={y + r + 16} className="loc-count">
-                      {c.count}
-                    </text>
-                  </g>
-                );
-              })}
-            </svg>
-            <span className="loc-axis nw">
-              {g.latMax.toFixed(2)}° / {g.lonMin.toFixed(2)}°
-            </span>
-            <span className="loc-axis se">
-              {g.latMin.toFixed(2)}° / {g.lonMax.toFixed(2)}°
-            </span>
-            <span className="loc-axis sw">圆点越大，照片越多</span>
+                  {clusters.map((c) => {
+                    const { x, y } = project(c.lat, c.lon);
+                    const r = 7 + Math.min(15, Math.sqrt(c.count) * 3);
+                    const on = c.key === selectedKey;
+                    return (
+                      <g
+                        key={c.key}
+                        className={`loc-dot${on ? ' on' : ''}`}
+                        onClick={() => setSelectedKey(c.key)}
+                      >
+                        <circle cx={x} cy={y} r={r + 9} className="loc-hit" />
+                        <circle cx={x} cy={y} r={r} className="loc-point" />
+                        {on && <circle cx={x} cy={y} r={r + 5} className="loc-ring" />}
+                        <text x={x} y={y + r + 16} className="loc-count">
+                          {c.count}
+                        </text>
+                      </g>
+                    );
+                  })}
+                </svg>
+                <span className="loc-axis nw">
+                  {g.latMax.toFixed(2)}° / {g.lonMin.toFixed(2)}°
+                </span>
+                <span className="loc-axis se">
+                  {g.latMin.toFixed(2)}° / {g.lonMax.toFixed(2)}°
+                </span>
+                <span className="loc-axis sw">圆点越大，照片越多</span>
+              </>
+            )}
+            {mapError && (
+              <span className="loc-map-tip">{`底图没出来：${mapError}，先按本地散点显示`}</span>
+            )}
+            {!mapKey && (
+              <span className="loc-map-tip">在「设置 → 地图」填腾讯地图 Key 可显示真实底图</span>
+            )}
           </div>
 
           <div className="loc-strip">

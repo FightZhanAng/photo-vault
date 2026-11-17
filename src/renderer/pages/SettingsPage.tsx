@@ -39,9 +39,12 @@ export default function SettingsPage() {
   const minKb = prefs[PREF.minKb] ?? '1';
   const defaultSort = prefs[PREF.defaultSort] ?? 'taken_desc';
   const exportFormat = prefs[PREF.exportFormat] ?? 'original';
+  const mapKey = prefs[PREF.mapKey] ?? '';
   /** 数字输入框先存本地，失焦时再落库，避免边打字边写 DB */
   const [minKbDraft, setMinKbDraft] = useState(minKb);
   useEffect(() => setMinKbDraft(minKb), [minKb]);
+  const [mapKeyDraft, setMapKeyDraft] = useState(mapKey);
+  useEffect(() => setMapKeyDraft(mapKey), [mapKey]);
 
   const commitPref = (patch: Record<string, string>): void => {
     setPref(patch).catch((e) => showToast(errorText(e)));
@@ -341,6 +344,35 @@ export default function SettingsPage() {
               </button>
               <span className="hint">每个任务的具体上传链接在「收集任务」里</span>
             </div>
+          </div>
+
+          <div className="card">
+            <h3>地图</h3>
+            <div className="row" style={{ marginTop: 4 }}>
+              <input
+                className="input"
+                style={{ flex: 1, minWidth: 0 }}
+                placeholder="腾讯位置服务 Key（留空则只用本地散点图）"
+                value={mapKeyDraft}
+                spellCheck={false}
+                onChange={(e) => setMapKeyDraft(e.target.value)}
+                onBlur={() => {
+                  const next = mapKeyDraft.trim();
+                  if (next !== mapKey) commitPref({ [PREF.mapKey]: next });
+                }}
+              />
+              <button
+                className="btn"
+                onClick={() => void api.app.openExternal('https://lbs.qq.com/dev/console/application/mine')}
+              >
+                去申请
+              </button>
+            </div>
+            <p className="hint" style={{ marginTop: 8, marginBottom: 0 }}>
+              「地点」页的底图走腾讯位置服务的静态图接口。Key 只存在这个库里、只在主进程使用，
+              不会进页面也不会随相册导出。没填或者取不到图时，仍然按本地散点图显示，不影响使用。
+              建 Key 时勾上 WebServiceAPI 就够，配额选「个人」。
+            </p>
           </div>
 
           <div className="card">

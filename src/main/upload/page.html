@@ -92,6 +92,14 @@
   .state.work { color: var(--faint); }
 
   .foot { margin-top: 26px; text-align: center; color: var(--faint); font-size: 11.5px; line-height: 1.7; }
+  .diag { margin-top: 12px; color: var(--faint); font-size: 11px; }
+  .diag summary { cursor: pointer; text-align: center; }
+  .diag pre {
+    margin: 8px 0 0; padding: 10px 12px; border-radius: 10px;
+    background: rgba(0, 0, 0, 0.04); white-space: pre-wrap; word-break: break-all;
+    line-height: 1.65; font-size: 10.5px;
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
   .toast {
     position: fixed; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom));
     transform: translateX(-50%) translateY(12px);
@@ -137,6 +145,12 @@
   <div class="queue" id="queue"></div>
 
   <div class="foot">照片和视频直接传到同一局域网里的电脑<br />不经过互联网，关掉页面不会丢已传完的</div>
+
+  <!-- 卡住时让用户能直接说出停在哪一步，比「还是卡」有用得多 -->
+  <details class="diag">
+    <summary>上传诊断</summary>
+    <pre id="diaglog"></pre>
+  </details>
 </div>
 <div class="toast" id="toast"></div>
 
@@ -157,6 +171,20 @@
   var $ = function (id) { return document.getElementById(id); };
   var nameInput = $('uploader');
   var toastTimer = null;
+
+  // 手机上看不到控制台。把关键步骤记在一个可展开的面板里，
+  // 万一还是卡住，点开就能看到停在第几片、那一片等了多久、报了什么错。
+  var logs = [];
+  function log(msg) {
+    var d = new Date();
+    var t = [d.getHours(), d.getMinutes(), d.getSeconds()]
+      .map(function (n) { return String(n).padStart(2, '0'); })
+      .join(':');
+    logs.push(t + '  ' + msg);
+    if (logs.length > 80) logs.shift();
+    var el = $('diaglog');
+    if (el) el.textContent = logs.join('\n');
+  }
 
   function toast(msg) {
     var el = $('toast');
@@ -196,9 +224,13 @@
 
   async function loadInfo(silent) {
     try {
-      var res = await fetchT('/api/info?t=' + encodeURIComponent(TOKEN), { cache: 'no-store' });
-      if (!res.ok) throw new Error('HTTP ' + res.status);
-      renderInfo(await res.json());
+      var res = await req('GET', '/api/info?t=' + encodeURIComponent(TOKEN), null, {
+        timeout: API_TIMEOUT,
+      });
+      if (res.status !== 200) throw new Error('HTTP ' + res.status);
+      var info2 = parseJson(res.text);
+      renderInfo(info2);
+      if (!silent) log('连接成功 · 已收 ' + info2.received + ' 张');
     } catch (e) {
       if (!silent) {
         $('title').textContent = '链接不可用';
@@ -217,62 +249,121 @@
     item.el.mini.style.width = Math.round(ratio * 100) + '%';
   }
 
-  // 有上限的请求。手机切后台、锁屏或者网络抖一下的时候，fetch 可能既不
-  // 给响应也不报错，就一直挂着 —— 而它挂多久，就占着并发槽多久（最多 2 个），
-  // 挂死 2 个之后后面所有照片都永远停在「等待中」。超时按失败处理，
-  // 交给 uploadOnce 的重试逻辑，届时会从服务端已有的字节数接着传。
-  var REQ_TIMEOUT = 45000;
-  var inflight = [];
-
-  function fetchT(url, opts) {
-    opts = opts || {};
-    if (typeof AbortController !== 'function') return fetch(url, opts);
-    var ctrl = new AbortController();
-    var rec = { ctrl: ctrl, at: Date.now() };
-    inflight.push(rec);
-    var timer = setTimeout(function () { ctrl.abort(); }, REQ_TIMEOUT);
-    opts.signal = ctrl.signal;
-    var done = function () {
-      clearTimeout(timer);
-      var i = inflight.indexOf(rec);
-      if (i >= 0) inflight.splice(i, 1);
-    };
-    return fetch(url, opts).then(
-      function (r) {
-        done();
-        return r;
-      },
-      function (e) {
-        done();
-        if (e && e.name === 'AbortError') throw new Error('网络超时，正在重试');
-        throw e;
-      }
-    );
+  // 副标题平时显示文件大小，传的过程中显示「第几片 / 共几片」。
+  // 卡住时用户能直接报出停在哪一片，不用靠猜。
+  function setSub(item, text) {
+    if (item.el.sub) item.el.sub.textContent = text;
   }
 
-  // 切回前台时，把已经挂了一会儿的请求立刻掐掉重来，不用干等 45 秒。
+  // 所有请求都走 XMLHttpRequest，不用 fetch。
+  //
+  // 原因很具体：iOS 上 fetch 一旦挂住，AbortController.abort() 经常叫不醒
+  // 它；更糟的是被 abort 过的连接会被后续请求继续复用，整条队列跟着卡死。
+  // 表现就是传了一两个分片之后再也不动 —— 服务端的 .part 停在 256KB 的整数倍。
+  // XHR 有原生 timeout，到点会真的结束请求，abort() 也是立刻生效。
+  // 请求挂多久就占着并发槽多久（最多 2 个），挂死两个之后后面全停在「等待中」，
+  // 所以超时必须真的能生效。
+  var REQ_TIMEOUT = 20000; // 单片 256KB，20 秒相当于 13KB/s 的下限
+  var API_TIMEOUT = 20000;
+  var inflight = [];
+
+  function req(method, url, body, opts) {
+    opts = opts || {};
+    return new Promise(function (resolve, reject) {
+      var xhr = new XMLHttpRequest();
+      var isText = typeof body === 'string';
+      xhr.open(method, url, true);
+      xhr.timeout = opts.timeout || REQ_TIMEOUT;
+      if (isText) xhr.setRequestHeader('content-type', 'application/json');
+      var rec = { xhr: xhr, at: Date.now() };
+      inflight.push(rec);
+      // 记在条目上，看门狗判定卡死时能把这条请求真正掐掉，
+      // 免得旧请求和新一轮撞在一起、同一个分片写两遍
+      if (opts.owner) opts.owner.xhr = xhr;
+      var drop = function () {
+        var i = inflight.indexOf(rec);
+        if (i >= 0) inflight.splice(i, 1);
+        if (opts.owner && opts.owner.xhr === xhr) opts.owner.xhr = null;
+      };
+      xhr.onload = function () {
+        drop();
+        resolve({ status: xhr.status, text: xhr.responseText || '' });
+      };
+      xhr.onerror = function () { drop(); reject(new Error('网络中断')); };
+      xhr.ontimeout = function () { drop(); reject(new Error('网络超时')); };
+      xhr.onabort = function () { drop(); reject(new Error('已取消')); };
+      if (opts.onUpload) {
+        xhr.upload.onprogress = function (e) {
+          if (!e.lengthComputable) return;
+          rec.at = Date.now();
+          opts.onUpload(e.loaded, e.total);
+        };
+      }
+      xhr.send(body == null ? null : body);
+    });
+  }
+
+  function parseJson(text) {
+    try {
+      return JSON.parse(text || '{}');
+    } catch (e) {
+      return {};
+    }
+  }
+
+  // 切回前台时，把已经挂了一会儿的请求立刻掐掉重来，不用干等超时。
   // 服务端按 offset 续传，已经收到的字节不会白传。
   document.addEventListener('visibilitychange', function () {
     if (document.visibilityState !== 'visible') return;
     var now = Date.now();
     inflight.slice().forEach(function (rec) {
-      if (now - rec.at > 8000) rec.ctrl.abort();
+      if (now - rec.at > 8000) {
+        try { rec.xhr.abort(); } catch (e) { /* 已经结束 */ }
+      }
     });
   });
 
-  async function postJSON(url, body) {
-    var res = await fetchT(url, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    var json = await res.json().catch(function () { return {}; });
-    if (!res.ok) {
+  async function postJSON(url, body, timeout) {
+    var res = await req('POST', url, JSON.stringify(body), { timeout: timeout || API_TIMEOUT });
+    var json = parseJson(res.text);
+    if (res.status < 200 || res.status >= 300) {
       var err = new Error(json.error || ('HTTP ' + res.status));
       err.status = res.status;
+      err.data = json;
       throw err;
     }
     return json;
+  }
+
+  // 把整份文件先读进内存，后面所有分片都从内存里切。
+  //
+  // iOS 从「照片图库」拿到的 File 并不是普通本地文件：每一次 slice() 都可能
+  // 要回到相册甚至 iCloud 去取那一段，取不到就一声不响地吊着 —— 这才是
+  // 「一两片之后就再也不动」最像的原因（913KB 的照片也只传了 1 片）。
+  // 一次读完，后续就完全不再碰相册。
+  var MEM_LIMIT = 32 * 1024 * 1024;
+  // 一次选二十张照片时不能每张都整份读进内存，手机上会把页面撑崩：
+  // 单张 32MB、总量 64MB 封顶，超出的退回按片读
+  var MEM_TOTAL = 64 * 1024 * 1024;
+  var bufferedBytes = 0;
+
+  function readWholeFile(file) {
+    return new Promise(function (resolve, reject) {
+      var fr = new FileReader();
+      var timer = setTimeout(function () {
+        try { fr.abort(); } catch (e) { /* 已经结束 */ }
+        reject(new Error('读取文件超时'));
+      }, 60000);
+      fr.onload = function () { clearTimeout(timer); resolve(fr.result); };
+      fr.onerror = function () { clearTimeout(timer); reject(new Error('读取文件失败')); };
+      fr.onabort = function () { clearTimeout(timer); reject(new Error('读取已取消')); };
+      fr.readAsArrayBuffer(file);
+    });
+  }
+
+  function sliceOf(item, offset, end) {
+    if (item.buf) return new Blob([new Uint8Array(item.buf, offset, end - offset)]);
+    return item.file.slice(offset, end);
   }
 
   async function uploadOnce(item, gen) {
@@ -288,6 +379,8 @@
     });
     if (item.gen !== gen) return false;
     var offset = init.offset || 0;
+    var total = Math.max(1, Math.ceil(item.file.size / CHUNK));
+    log(item.file.name + ' · ' + fmtSize(item.file.size) + ' · 从 ' + offset + ' 字节开始');
     setProgress(item, offset / item.file.size);
     // 别让它在第一片传完之前一直挂着「等待中」——用户会以为卡死了
     setState(
@@ -296,40 +389,81 @@
       'work'
     );
 
+    var roomy =
+      !item.buf && !item.noBuf && item.file.size <= MEM_LIMIT &&
+      bufferedBytes + item.file.size <= MEM_TOTAL;
+    if (roomy) {
+      setState(item, '准备中…', 'work');
+      item.progressAt = Date.now();
+      try {
+        item.buf = await readWholeFile(item.file);
+        bufferedBytes += item.file.size;
+      } catch (e) {
+        // 读不进内存就退回按片读，至少还能继续，别把这条路彻底堵死
+        item.noBuf = true;
+      }
+      if (item.gen !== gen) return false;
+      setState(item, Math.round((offset / item.file.size) * 100) + '%', 'work');
+    }
+
     while (offset < item.file.size) {
       if (item.gen !== gen) return false;
       var end = Math.min(offset + CHUNK, item.file.size);
-      var blob = item.file.slice(offset, end);
+      var blob = sliceOf(item, offset, end);
       // iOS 从「照片图库」里多选时，File 偶尔读不出内容（slice 得到空 Blob）。
       // 不挡住的话服务端 received 不增长、客户端 offset 也不变，
       // 就会无限重发空请求，界面上一直「等待中」——比报错更难查。
-      if (!blob.size) throw new Error('读取这张照片失败，请重新选择');
-      var res = await fetchT('/api/chunk?uploadId=' + encodeURIComponent(init.uploadId) +
-        '&offset=' + offset, {
-        method: 'PUT',
-        headers: { 'content-type': 'application/octet-stream' },
-        body: blob,
-      });
-      if (res.status === 409) {
-        var j = await res.json().catch(function () { return {}; });
-        offset = typeof j.offset === 'number' ? j.offset : 0;
+      if (!blob.size) throw new Error('读取这张文件失败，请重新选择');
+      var startedAt = Date.now();
+      var res = await req(
+        'PUT',
+        '/api/chunk?uploadId=' + encodeURIComponent(init.uploadId) + '&offset=' + offset,
+        blob,
+        {
+          timeout: REQ_TIMEOUT,
+          owner: item,
+          // 片内每收到一点字节就刷新一次「活着」的时间戳，
+          // 免得大文件在慢网下被看门狗误判成卡死
+          onUpload: function () {
+            item.progressAt = Date.now();
+          },
+        }
+      );
+      var data = parseJson(res.text);
+      if (res.status === 409 && typeof data.offset === 'number') {
+        // 服务端说它对不上（上一次请求断在半路，只写了半片）。
+        // 以它为准接着传，别拿着自己的 offset 死磕 409
+        offset = data.offset;
         continue;
       }
-      if (!res.ok) throw new Error('上传中断（' + res.status + '）');
-      var data = await res.json();
+      if (res.status < 200 || res.status >= 300) {
+        throw new Error(data.error || ('上传中断（' + res.status + '）'));
+      }
       // 服务端一个字节都没吃进去，继续循环也只是空转
       if (!(data.received > offset)) throw new Error('上传没有进展');
       offset = data.received;
+      log(
+        '  片 ' + Math.ceil(offset / CHUNK) + '/' + total + ' · 已收 ' + offset + ' 字节 · ' +
+        (Date.now() - startedAt) + 'ms'
+      );
       setProgress(item, offset / item.file.size);
+      setSub(item, fmtSize(item.file.size) + ' · ' + (Math.ceil(offset / CHUNK) || 1) + '/' + total);
       setState(item, Math.round((offset / item.file.size) * 100) + '%', 'work');
     }
 
     if (item.gen !== gen) return false;
-    var done = await postJSON('/api/complete', { uploadId: init.uploadId });
+    // 入库要算 sha1、复制文件，视频还要读出首帧，比传分片慢得多
+    var done = await postJSON('/api/complete', { uploadId: init.uploadId }, 120000);
     // 这里不再看 gen：complete 一旦拿到 200 就说明服务端已经入库了，
     // 无条件收尾，免得看门狗刚好插手时又整份重传一遍
     item.done = true;
+    if (item.buf) {
+      item.buf = null; // 早一点把几十 MB 的内存还回去
+      bufferedBytes -= item.file.size;
+    }
     setProgress(item, 1);
+    setSub(item, fmtSize(item.file.size));
+    log(item.file.name + (done.deduped ? ' 已在库里（跳过）' : ' 入库完成'));
     if (done.deduped) {
       setState(item, '已存在', 'dup');
     } else {
@@ -347,6 +481,7 @@
         return;
       } catch (e) {
         if (item.gen !== gen) return; // 已经被看门狗接管，别再插手
+        log(item.file.name + ' 出错：' + ((e && e.message) || e));
         if (attempt === 2) {
           setState(item, '失败 · 点此重试', 'err');
           item.el.state.onclick = function () {
@@ -410,7 +545,14 @@
       var it = queue[i];
       if (!it.running || it.done) continue;
       if (now - (it.progressAt || 0) < STALL_MS) continue;
+      log(
+        it.file.name + ' · ' + Math.round((now - (it.progressAt || 0)) / 1000) +
+        ' 秒没有进展，作废这一轮重传'
+      );
+      // 先让旧循环作废，再把还挂着的请求掐掉：XHR 的 abort 是立刻生效的，
+      // 不掐的话它和重新起的那一轮会同时往同一个分片 offset 上写
       it.gen++;
+      try { if (it.xhr) it.xhr.abort(); } catch (e) { /* 已经结束 */ }
       it.running = false;
       it.attempts = (it.attempts || 0) + 1;
       active--;
@@ -481,12 +623,14 @@
 
       queue.push({
         file: file,
-        el: { root: el, mini: fill, state: state },
+        el: { root: el, mini: fill, state: state, sub: sub },
         done: false,
         running: false,
         gen: 0,
         attempts: 0,
         progressAt: 0,
+        buf: null,
+        noBuf: false,
       });
     });
     if (queue.length) pump();

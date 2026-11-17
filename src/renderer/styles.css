@@ -4238,3 +4238,84 @@ kbd {
   border-top: 1px solid var(--line);
   margin: 12px 0;
 }
+
+/* ---------------------------------------------------------------------------
+   地点页的真实底图（components/TencentMap.tsx）
+   没有 Key 或取不到瓦片时这里不渲染，仍用上面那套本地散点图
+   --------------------------------------------------------------------------- */
+.loc-map.live {
+  height: 328px;
+}
+.loc-map .tmap {
+  width: 100%;
+  height: 100%;
+}
+.mapview {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+.mapview-img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.mapview-note {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+.mapview-attr {
+  position: absolute;
+  left: 8px;
+  bottom: 6px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.72);
+  font-size: 9.5px;
+  color: rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+}
+.mapview-zoom {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.mapview-zoom button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-1);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+.mapview-zoom button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.loc-map-tip {
+  position: absolute;
+  left: 10px;
+  top: 8px;
+  max-width: calc(100% - 20px);
+  padding: 3px 8px;
+  border-radius: var(--r-1);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  font-size: 10.5px;
+  color: var(--text-3);
+  pointer-events: none;
+}
