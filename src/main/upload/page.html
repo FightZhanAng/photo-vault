@@ -140,7 +140,10 @@
 
 <script>
 (function () {
-  var TOKEN = new URLSearchParams(location.search).get('t') || '';
+  // 口令在路径里（/u/<token>），早期也支持 /u/?t=<token>，两种都认
+  var TOKEN = ((location.pathname.match(/^\/u\/([a-f0-9]{6,32})/i) || [])[1] ||
+    new URLSearchParams(location.search).get('t') ||
+    '').toLowerCase();
   var CHUNK = 512 * 1024;
   var MAX_ACTIVE = 2;
   var queue = [];

@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { openCdp, run, sleep } from './cdp.mjs';
+import { spawn } from 'node:child_process';
+import { openCdp, connectCdp, run, sleep } from './cdp.mjs';
 
 // 从项目根目录运行：node test/e2e.mjs
 const ROOT = process.cwd();
@@ -188,6 +189,63 @@ assert(
   '手机上传页可访问',
   `HTTP ${pageRes.status} / ${pageHtml.length} 字节`
 );
+
+/**
+ * 上面那条只证明「服务器肯把 HTML 吐给你」，页面里的脚本照样可能拿不到口令。
+ * 曾经就是这样：链接是 /u/<token>，脚本却只用 URLSearchParams 读 ?t=，
+ * 结果手机扫码能打开页面、却永远显示「链接不可用」。
+ * 这里用独立浏览器真打开一次，读它渲染出来的标题。
+ */
+const EDGE = [
+  'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
+  'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
+].find((p) => fs.existsSync(p));
+
+if (!EDGE) {
+  ok('扫码打开上传页', '跳过：本机没装 Edge，验不了页面脚本');
+} else {
+  const edgeData = path.join(ROOT, '.workbuddy', 'tmp', 'e2e-edge');
+  fs.rmSync(edgeData, { recursive: true, force: true });
+  fs.mkdirSync(edgeData, { recursive: true });
+  const edge = spawn(
+    EDGE,
+    [
+      '--headless=new',
+      '--remote-debugging-port=9415',
+      `--user-data-dir=${edgeData}`,
+      '--no-first-run',
+      '--no-default-browser-check',
+      '--disable-gpu',
+      `${base}/u/${info.token}`,
+    ],
+    { stdio: 'ignore' }
+  );
+  let phone = null;
+  try {
+    phone = await waitFor(
+      async () => {
+        try {
+          const targets = await (await fetch('http://127.0.0.1:9415/json')).json();
+          const page = targets.find((t) => t.type === 'page' && t.url.includes('/u/'));
+          return page ? await connectCdp(page.webSocketDebuggerUrl) : null;
+        } catch {
+          return null;
+        }
+      },
+      20000,
+      '无头 Edge 打开上传页'
+    );
+    await sleep(1600);
+    const seen = await phone.evaluate(
+      `({ title: (document.getElementById('title') || {}).textContent,
+          note: (document.getElementById('note') || {}).textContent })`
+    );
+    assert(seen.title === '周末团建', '扫码打开上传页取到任务', `标题=${JSON.stringify(seen.title)}`);
+  } finally {
+    phone?.close();
+    edge.kill('SIGKILL');
+  }
+}
 
 const upload = await (async () => {
   const buf = fs.readFileSync(PHONE);

@@ -1,12 +1,17 @@
 import fs from 'node:fs';
 
-export async function openCdp(port) {
+/** 连到某个 DevTools target；pick 可传过滤函数，默认取第一个 page */
+export async function openCdp(port, pick) {
   const res = await fetch(`http://127.0.0.1:${port}/json`);
   const targets = await res.json();
-  const page = targets.find((t) => t.type === 'page');
+  const page = pick ? targets.find(pick) : targets.find((t) => t.type === 'page');
   if (!page) throw new Error('没有找到页面目标');
+  return connectCdp(page.webSocketDebuggerUrl);
+}
 
-  const ws = new WebSocket(page.webSocketDebuggerUrl);
+/** 直接按 webSocketDebuggerUrl 连接（/json/new 新建的 target 用这个） */
+export async function connectCdp(wsUrl) {
+  const ws = new WebSocket(wsUrl);
   const pending = new Map();
   let seq = 0;
   const errors = [];
