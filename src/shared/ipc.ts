@@ -378,14 +378,25 @@ export interface AppInfo {
   videoThumbSupported: boolean;
 }
 
-/** 更新检查结果；未配置更新源时 configured=false，其余字段为 null */
+/**
+ * 更新检查结果。默认查 GitHub Releases 的 latest；
+ * error 非空表示「这次没查成」（超时 / 限流 / 连不上），此时 latest 等字段保持 null，
+ * 不能当作「已是最新」来展示。
+ */
 export interface UpdateCheck {
   current: string;
+  /** 结果来源：github / 本地 json / 没有可用更新源 */
+  source: 'github' | 'file' | 'none';
   configured: boolean;
   latest: string | null;
+  /** 安装包直链 */
   url: string | null;
+  /** 发布页 */
+  pageUrl: string | null;
   notes: string | null;
+  publishedAt: string | null;
   available: boolean;
+  error: string | null;
 }
 
 export interface InboxStats {
@@ -588,7 +599,7 @@ export const CH = {
     clearThumbCache: 'app:clearThumbCache',
     /** 主题切换时同步窗口标题栏覆盖层配色（浅色主题下窗口按钮要变深） */
     setTitlebar: 'app:setTitlebar',
-    /** 读发布方配置的 update.json，判断有没有新版本 */
+    /** 查 GitHub Releases（或 PHOTOVAULT_UPDATE_FEED 指定的本地源）判断有没有新版本 */
     checkUpdate: 'app:checkUpdate',
   },
   library: {

@@ -30,6 +30,7 @@ export default function SettingsPage() {
   const [update, setUpdate] = useState<UpdateCheck | null>(null);
   const [confirmClear, setConfirmClear] = useState(false);
   const [confirmSwitch, setConfirmSwitch] = useState(false);
+  const [showNotes, setShowNotes] = useState(false);
 
   const autoKeep = prefBool(prefs, PREF.autoKeep, false);
   const minKb = prefs[PREF.minKb] ?? '1';
@@ -119,9 +120,15 @@ export default function SettingsPage() {
   };
 
   const updateHint = ((): string => {
-    if (!update) return '读发布方配置的 update.json 判断有没有新版本';
-    if (!update.configured) return '未配置更新源 —— 发布时把 update.json 放到安装目录的 resources 下';
-    if (update.available) return `有新版本 ${update.latest}（当前 ${update.current}）`;
+    if (!update) return '查 GitHub Releases 上的最新正式版本';
+    // 没查成和「是最新的」是两回事，不能混着说
+    if (update.error) return `没查成：${update.error}`;
+    if (!update.configured) return '没有可用的更新源';
+    if (!update.latest) return '上游还没有发布过正式版本';
+    if (update.available) {
+      const when = update.publishedAt ? ` · 发布于 ${update.publishedAt.slice(0, 10)}` : '';
+      return `有新版本 ${update.latest}（当前 ${update.current}）${when}`;
+    }
     return `已是最新 ${update.current}`;
   })();
 
@@ -368,7 +375,22 @@ export default function SettingsPage() {
                     void api.app.openExternal(update.url as string);
                   }}
                 >
-                  打开下载页
+                  下载新版本
+                </button>
+              )}
+              {update?.available && update.notes && (
+                <button className="btn btn-ghost" onClick={() => setShowNotes(true)}>
+                  更新说明
+                </button>
+              )}
+              {update?.pageUrl && !update.error && (
+                <button
+                  className="btn btn-ghost"
+                  onClick={() => {
+                    void api.app.openExternal(update.pageUrl as string);
+                  }}
+                >
+                  {update.available ? '发布页' : '版本历史'}
                 </button>
               )}
               <span className="hint">{updateHint}</span>
@@ -418,6 +440,36 @@ export default function SettingsPage() {
           <p className="hint">
             会关闭当前库并回到欢迎页，照片和数据库都保留在原目录。下次可以从「最近打开」直接回来。
           </p>
+        </Modal>
+      )}
+
+      {showNotes && update?.notes && (
+        <Modal
+          title={`更新说明 · ${update.latest}`}
+          subtitle={update.publishedAt ? `发布于 ${update.publishedAt.slice(0, 10)}` : undefined}
+          onClose={() => setShowNotes(false)}
+          width={560}
+          footer={
+            <>
+              <div className="spacer" />
+              <button className="btn btn-ghost" onClick={() => setShowNotes(false)}>
+                关闭
+              </button>
+              {update.url && (
+                <button
+                  className="btn btn-primary"
+                  onClick={() => {
+                    void api.app.openExternal(update.url as string);
+                  }}
+                >
+                  下载
+                </button>
+              )}
+            </>
+          }
+        >
+          {/* Release 正文是 Markdown，这里按原文展示，不假装渲染 */}
+          <p style={{ whiteSpace: 'pre-wrap', lineHeight: 1.65, margin: 0 }}>{update.notes}</p>
         </Modal>
       )}
     </>

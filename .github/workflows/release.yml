@@ -1,0 +1,57 @@
+name: release
+
+# 打 tag（v0.2.0）就出安装包并挂到 GitHub Release；
+# 也可以在 Actions 页面手动触发，只构建、不发版（用来验证构建链路）。
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # 客户端是按 tag 判断版本的，tag 和 package.json 对不上就直接失败，
+      # 别等装到用户机器上才发现「有新版本」永远为假。
+      - name: 校验 tag 与 package.json 版本一致
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: |
+          pkg=$(node -p "require('./package.json').version")
+          tag=${GITHUB_REF_NAME#v}
+          echo "package.json=$pkg tag=$tag"
+          if [ "$pkg" != "$tag" ]; then
+            echo "::error::tag $GITHUB_REF_NAME 与 package.json 的 $pkg 不一致"
+            exit 1
+          fi
+
+      - run: npm ci
+
+      - run: npm run typecheck
+
+      - name: 构建安装包
+        run: npm run dist
+        env:
+          # 没有代码签名证书，别让 electron-builder 去找
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+      - name: 挂到 Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.exe
+            dist/*.exe.blockmap
+          generate_release_notes: true
+          draft: false
+          prerelease: false

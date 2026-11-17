@@ -32,7 +32,7 @@
 - **索引不搬家**：媒体库里只新增 `<库>/.vault/`（`vault.db` + `thumbs/` + `uploads/`），原图一张都不动。所以「删库」是安全的，删除 `.vault` 就等于彻底卸载，照片还在。
 - **去重靠内容**：对整份文件算 sha1，不靠文件名或大小。同一个文件换个名字再拖进来，会被识别为重复并跳过。
 - **不用 better-sqlite3**：那个模块要按 Electron ABI 重编译，官方也没出 Electron 45 的预编译包。Electron 45 内置的 `node:sqlite` 够用，免编译、打包更小——代价是没有 `.pragma()` 和 `.transaction()`，在 `src/main/db/sqlite.ts` 这一层手动补上。
-- **更新检查不装框架**：`electron-updater` 要配好发布源才有意义，否则装上去就是个永远返回「无更新」的黑盒。这里改成读一份显式的 `update.json`，没配置就老实说没配置。
+- **更新检查不装框架**：`electron-updater` 要做「下载 → 校验 → 静默替换 → 重启」，Windows 上还得配签名，任何一环出错用户只看到一个装不上的黑盒。这里改成查 GitHub Releases 的 latest，查到就把下载页和更新说明摆出来，装不装由人决定。
 
 ## 技术栈
 
@@ -117,27 +117,46 @@ npm run dist
 
 产物：`dist/PhotoVault-<version>-setup.exe`（NSIS，中文安装向导，可选安装目录，不强制提权）。配置在 `electron-builder.yml`：`sharp` 是原生模块，走 `asarUnpack` 解包，避免 asar 内加载失败。目前只配置了 Windows x64 目标。
 
-## 更新检查
+## 更新与发布
 
-没有内置自动更新。程序启动时会按顺序找 `update.json`：
+### 客户端怎么查更新
 
-1. 环境变量 `PHOTOVAULT_UPDATE_FEED` 指向的路径；
-2. `<安装目录>/resources/update.json`；
-3. 开发时的 `<项目根>/resources/update.json`。
+设置页的「检查更新」直接查 GitHub Releases 的 latest：
 
-```json
-{
-  "version": "0.2.0",
-  "url": "https://example.com/PhotoVault-0.2.0-setup.exe",
-  "notes": "修复了什么"
-}
+- 接口：`GET https://api.github.com/repos/FightZhanAng/photo-vault/releases/latest`
+- 只认**正式发布**（草稿和预发布不算）；tag 上的 `v` 前缀会去掉再比版本号
+- 安装包取资产里名字匹配 `PhotoVault-*-setup.exe` 的那个，没有就退到任意 `.exe`
+- 8 秒超时；限流、断网、超时都会把原因显示出来，不会伪装成「已是最新」
+- 走 Electron 的 `net.fetch`（Chromium 网络栈），能继承系统代理——国内直连不通时这条才是救命的那条
+
+没有内置静默升级：查到新版本只给「下载新版本 / 更新说明 / 发布页」三个入口，安装仍由你双击安装包完成。免签名的静默替换代价太大，这里不做。
+
+### 发布流程
+
+```bash
+npm version patch --no-git-tag-version   # 0.1.0 → 0.1.1
+git commit -am "chore: 版本 0.1.1"
+git tag v0.1.1
+git push ssh-origin main --tags
 ```
 
-找不到就当「未配置」直接说，不假装检查过。目前仓库里没有这份文件——想启用更新提示，自己放一份进去。
+`.github/workflows/release.yml` 在 `v*` tag 上跑：校验 tag 与 `package.json` 一致 → `npm ci` → `typecheck` → `npm run dist` → 把 `dist/*.exe` 挂到 Release。CI 产出的那个 Release，就是客户端能查到的那份——**别手动传安装包**，名字和版本对不上就查不到。
+
+### 换更新源
+
+内网或镜像场景，`PHOTOVAULT_UPDATE_FEED=/path/to/update.json` 可以把检查切到本地文件：
+
+```json
+{ "version": "0.2.0", "url": "https://…/PhotoVault-0.2.0-setup.exe", "notes": "更新说明", "pageUrl": "https://…" }
+```
+
+fork 出去的仓库用 `PHOTOVAULT_UPDATE_REPO=owner/repo` 指过去。
 
 ## 已知限制
 
 - 只出 Windows 安装包（代码里没有平台特定逻辑，但要出别的平台得先加 target 并验证原生模块）。
+- 安装包没有代码签名，首次运行会触发 SmartScreen 的「未知发布者」提示——点「更多信息 → 仍要运行」即可。
+- 更新只做提示和下载，不静默替换安装。
 - 手机上传依赖同一局域网，Windows 防火墙需要放行 8787 端口（端口占用了会自动往后找）。
 - 没有云同步、没有人脸 / 场景识别，标签和相册都靠手工或规则。
 - 相似照片聚类基于 dHash 感知哈希 + 汉明距离，同一场景的连拍会归到一起，但不是「人脸级」的相似。
