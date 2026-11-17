@@ -44,11 +44,11 @@
 | 数据 | `node:sqlite`（内置）+ 12 张表，无 ORM |
 | 媒体 | sharp（缩略图 / 转码 / 导出）、exifr（EXIF）、qrcode（上传二维码） |
 
-进程按三层分：`src/main`（主进程，全部文件与数据库操作）、`src/preload`（只暴露白名单 API）、`src/renderer`（纯 UI，不碰 Node）。渲染层拿不到 `fs`，所有能力都走 59 个 IPC 通道，接口定义收在 `src/shared/ipc.ts`。
+进程按三层分：`src/main`（主进程，全部文件与数据库操作）、`src/preload`（只暴露白名单 API）、`src/renderer`（纯 UI，不碰 Node）。渲染层拿不到 `fs`，所有能力都走 65 个 IPC 通道，接口定义收在 `src/shared/ipc.ts`。
 
 ## 开发
 
-需要 Node 22+（对应 Electron 45 的运行时）。
+开发与验证环境：Windows 11 + Node 22（Electron 45 内置的 Node 与之一致）。
 
 ```bash
 npm install
