@@ -4,6 +4,7 @@ import { api, errorText, unwrap } from '../api';
 import { PREF, prefBool, useApp } from '../store';
 import { THEMES } from '../theme';
 import Modal from '../components/Modal';
+import MarkdownLite from '../components/MarkdownLite';
 
 function formatBytes(bytes: number): string {
   if (bytes > 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(2)} GB`;
@@ -468,8 +469,8 @@ export default function SettingsPage() {
             </>
           }
         >
-          {/* Release 正文是 Markdown，这里按原文展示，不假装渲染 */}
-          <p style={{ whiteSpace: 'pre-wrap', lineHeight: 1.65, margin: 0 }}>{update.notes}</p>
+          {/* Release 正文是 Markdown，用轻量渲染器转成标题 / 列表 / 链接，不做完整解析 */}
+          <MarkdownLite text={update.notes} />
         </Modal>
       )}
     </>
