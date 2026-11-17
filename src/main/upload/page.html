@@ -192,7 +192,7 @@
 
   async function loadInfo(silent) {
     try {
-      var res = await fetch('/api/info?t=' + encodeURIComponent(TOKEN), { cache: 'no-store' });
+      var res = await fetchT('/api/info?t=' + encodeURIComponent(TOKEN), { cache: 'no-store' });
       if (!res.ok) throw new Error('HTTP ' + res.status);
       renderInfo(await res.json());
     } catch (e) {
@@ -212,8 +212,51 @@
     item.el.mini.style.width = Math.round(ratio * 100) + '%';
   }
 
+  // 有上限的请求。手机切后台、锁屏或者网络抖一下的时候，fetch 可能既不
+  // 给响应也不报错，就一直挂着 —— 而它挂多久，就占着并发槽多久（最多 2 个），
+  // 挂死 2 个之后后面所有照片都永远停在「等待中」。超时按失败处理，
+  // 交给 uploadOnce 的重试逻辑，届时会从服务端已有的字节数接着传。
+  var REQ_TIMEOUT = 45000;
+  var inflight = [];
+
+  function fetchT(url, opts) {
+    opts = opts || {};
+    if (typeof AbortController !== 'function') return fetch(url, opts);
+    var ctrl = new AbortController();
+    var rec = { ctrl: ctrl, at: Date.now() };
+    inflight.push(rec);
+    var timer = setTimeout(function () { ctrl.abort(); }, REQ_TIMEOUT);
+    opts.signal = ctrl.signal;
+    var done = function () {
+      clearTimeout(timer);
+      var i = inflight.indexOf(rec);
+      if (i >= 0) inflight.splice(i, 1);
+    };
+    return fetch(url, opts).then(
+      function (r) {
+        done();
+        return r;
+      },
+      function (e) {
+        done();
+        if (e && e.name === 'AbortError') throw new Error('网络超时，正在重试');
+        throw e;
+      }
+    );
+  }
+
+  // 切回前台时，把已经挂了一会儿的请求立刻掐掉重来，不用干等 45 秒。
+  // 服务端按 offset 续传，已经收到的字节不会白传。
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState !== 'visible') return;
+    var now = Date.now();
+    inflight.slice().forEach(function (rec) {
+      if (now - rec.at > 8000) rec.ctrl.abort();
+    });
+  });
+
   async function postJSON(url, body) {
-    var res = await fetch(url, {
+    var res = await fetchT(url, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(body),
@@ -242,7 +285,7 @@
     while (offset < item.file.size) {
       var end = Math.min(offset + CHUNK, item.file.size);
       var blob = item.file.slice(offset, end);
-      var res = await fetch('/api/chunk?uploadId=' + encodeURIComponent(init.uploadId) +
+      var res = await fetchT('/api/chunk?uploadId=' + encodeURIComponent(init.uploadId) +
         '&offset=' + offset, {
         method: 'PUT',
         headers: { 'content-type': 'application/octet-stream' },
@@ -287,7 +330,9 @@
           };
           return;
         }
-        await new Promise(function (r) { setTimeout(r, 900 * (attempt + 1)); });
+        // 让用户看见它在自救，而不是一直挂着「等待中」不动
+        setState(item, '重试中…', 'work');
+        await new Promise(function (r) { setTimeout(r, 1200 * (attempt + 1)); });
       }
     }
   }

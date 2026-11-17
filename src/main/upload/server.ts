@@ -12,7 +12,6 @@ import {
 } from 'node:fs';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
-import { once } from 'node:events';
 import QRCode from 'qrcode';
 import type {
   TaskUploadInfo,
@@ -180,7 +179,12 @@ async function appendChunk(
       const buf = chunk as Buffer;
       written += buf.length;
       if (written > limit) throw new AppError('E_INVALID_ARG', '文件超过大小上限');
-      if (!stream.write(buf)) await once(stream, 'drain');
+      // 用 write 回调等落盘而不是 once(stream,'drain')：磁盘写失败时
+      // drain 永远不会来，会把这条请求（以及它占着的上传槽）挂死；
+      // 回调则会把错误如实抛出来。
+      await new Promise<void>((resolve, reject) => {
+        stream.write(buf, (err) => (err ? reject(err) : resolve()));
+      });
     }
     await new Promise<void>((resolve, reject) => {
       stream.end((err?: Error | null) => (err ? reject(err) : resolve()));
