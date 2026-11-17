@@ -8,6 +8,8 @@ release2/
 .workbuddy/
 *.local
 *.log
+# electron-vite dev 被杀时来不及清理的临时配置副本
+electron.vite.config.ts.*-*.mjs
 .DS_Store
 Thumbs.db
 

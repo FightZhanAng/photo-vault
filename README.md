@@ -67,6 +67,10 @@ npm run build      # 编译到 out/
 | `npm run e2e:full` | 起干净实例 → 跑完整 e2e → 收摊，一条命令 |
 | `npm run dist` | 编译 + 打 Windows 安装包到 `dist/` |
 
+也支持 pnpm（11.x）。仓库里的 `pnpm-workspace.yaml` 已经把需要跑 postinstall 的包写进 `allowBuilds`——pnpm 11 会把「依赖的构建脚本没被批准」当成硬错误（`ERR_PNPM_IGNORED_BUILDS`，install 直接 exit 1），少了这份配置 `pnpm dev` 会在校验依赖时直接失败。国内网络如果卡在 Electron 二进制下载，先设 `ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/`。
+
+CI 用的是 npm（`npm ci` + `package-lock.json`），pnpm 只是本地开发的可选入口。
+
 ## 目录结构
 
 ```

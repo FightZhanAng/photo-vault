@@ -1,0 +1,13 @@
+# pnpm 11 把「依赖的构建脚本没被批准」当成硬错误（ERR_PNPM_IGNORED_BUILDS，
+# install 直接 exit 1），而 pnpm dev 会先校验依赖树，于是连开发模式都起不来。
+#
+# 这两个包必须允许跑 postinstall：
+#   esbuild             装平台相关的二进制，electron-vite 全靠它
+#   electron-winstaller 打包工具链的辅助依赖
+#
+# electron 本身在 pnpm 的默认允许名单里，不用写；sharp 走 @img 预编译包，也不需要。
+# 改完要重新 pnpm install，脚本才会补跑。
+allowBuilds:
+  electron: true
+  electron-winstaller: true
+  esbuild: true
