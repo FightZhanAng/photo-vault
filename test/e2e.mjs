@@ -91,9 +91,29 @@ const page1 = await run(
   cdp,
   `const r = await window.vault.photo.list({ status: ['inbox'], limit: 100 });
    if (!r.ok) throw new Error(r.error.message);
-   return { total: r.data.total, items: r.data.items.map(p => ({ id: p.id, name: p.fileName, w: p.width, h: p.height, size: p.size })) };`
+   return { total: r.data.total, items: r.data.items.map(p => ({ id: p.id, name: p.fileName, w: p.width, h: p.height, size: p.size, lat: p.gpsLat, lon: p.gpsLon })) };`
 );
 assert(page1.total === 15, '收件箱收到 15 张');
+
+// 定位解析是最容易回归的一处：readExif 用 pick 白名单收窄字段时，
+// exifr 连 GPS 块整个都不读，19 张照片全是 null 也没人发现。seed 会给
+// IMG_0001 塞一段真 GPS，这里必须真的读出经纬度。
+const gpsPhoto = page1.items.find((p) => p.name === 'IMG_0001.jpg');
+assert(
+  gpsPhoto && typeof gpsPhoto.lat === 'number' && Math.abs(gpsPhoto.lat - 22.5431) < 0.001,
+  'EXIF 里的 GPS 解析入库',
+  gpsPhoto ? `lat=${gpsPhoto.lat} lon=${gpsPhoto.lon}` : '没找到 IMG_0001.jpg'
+);
+
+const refreshed = await run(
+  cdp,
+  `const r = await window.vault.photo.refreshMeta(); return r.ok ? r.data : r;`
+);
+assert(
+  refreshed.scanned >= 15 && refreshed.located >= 1,
+  '重新读取元数据能补出定位',
+  `扫描 ${refreshed.scanned} 张，${refreshed.located} 张有定位`
+);
 const base1 = page1.items.find((p) => p.name === 'IMG_0001.jpg');
 assert(
   base1 && base1.w >= 1000 && base1.h >= 600,

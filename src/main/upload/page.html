@@ -213,6 +213,7 @@
   }
 
   function setProgress(item, ratio) {
+    item.progressAt = Date.now();
     item.el.mini.style.width = Math.round(ratio * 100) + '%';
   }
 
@@ -274,7 +275,9 @@
     return json;
   }
 
-  async function uploadOnce(item) {
+  async function uploadOnce(item, gen) {
+    // gen 是这一轮的代号。看门狗判定卡死后会把 item.gen 递增，旧循环
+    // 下次检查时静默退出，免得和新起的那一轮抢着写同一个文件
     var uploader = nameInput.value.trim();
     var init = await postJSON('/api/init', {
       token: TOKEN,
@@ -283,6 +286,7 @@
       lastModified: item.file.lastModified || 0,
       uploader: uploader,
     });
+    if (item.gen !== gen) return false;
     var offset = init.offset || 0;
     setProgress(item, offset / item.file.size);
     // 别让它在第一片传完之前一直挂着「等待中」——用户会以为卡死了
@@ -293,6 +297,7 @@
     );
 
     while (offset < item.file.size) {
+      if (item.gen !== gen) return false;
       var end = Math.min(offset + CHUNK, item.file.size);
       var blob = item.file.slice(offset, end);
       // iOS 从「照片图库」里多选时，File 偶尔读不出内容（slice 得到空 Blob）。
@@ -319,7 +324,10 @@
       setState(item, Math.round((offset / item.file.size) * 100) + '%', 'work');
     }
 
+    if (item.gen !== gen) return false;
     var done = await postJSON('/api/complete', { uploadId: init.uploadId });
+    // 这里不再看 gen：complete 一旦拿到 200 就说明服务端已经入库了，
+    // 无条件收尾，免得看门狗刚好插手时又整份重传一遍
     item.done = true;
     setProgress(item, 1);
     if (done.deduped) {
@@ -331,16 +339,19 @@
     return true;
   }
 
-  async function runItem(item) {
+  async function runItem(item, gen) {
     for (var attempt = 0; attempt < 3; attempt++) {
+      if (item.gen !== gen) return;
       try {
-        await uploadOnce(item);
+        await uploadOnce(item, gen);
         return;
       } catch (e) {
+        if (item.gen !== gen) return; // 已经被看门狗接管，别再插手
         if (attempt === 2) {
           setState(item, '失败 · 点此重试', 'err');
           item.el.state.onclick = function () {
             item.el.state.onclick = null;
+            item.attempts = 0;
             setState(item, '等待中', 'work');
             pump();
           };
@@ -353,19 +364,72 @@
     }
   }
 
+  function pickNext() {
+    for (var i = 0; i < queue.length; i++) {
+      var it = queue[i];
+      if (!it.done && !it.running) return it;
+    }
+    return null;
+  }
+
+  // 必须把 item 作为参数传进来再挂回调。以前 while 里写 var next，
+  // 而 var 是函数作用域 —— 一次 pump 启动 A、B 两张时，两个 finally
+  // 拿到的都是同一个 next（B）：A 结束时把还在传的 B 标成空闲，B 被
+  // 重复启动；A 自己的 running 永远是 true，失败后连「重试」都点不动。
+  function startItem(item) {
+    item.running = true;
+    item.progressAt = Date.now();
+    active++;
+    var gen = item.gen;
+    runItem(item, gen).finally(function () {
+      if (item.gen !== gen) return; // 看门狗已经释放过这个槽了
+      item.running = false;
+      active--;
+      pump();
+    });
+  }
+
   function pump() {
     while (active < MAX_ACTIVE) {
-      var next = queue.find(function (it) { return !it.done && !it.running; });
+      var next = pickNext();
       if (!next) return;
-      next.running = true;
-      active++;
-      runItem(next).finally(function () {
-        active--;
-        next.running = false;
-        pump();
-      });
+      startItem(next);
     }
   }
+
+  // 最后的兜底，只认「多久没有新进展」这一件事，不依赖任何浏览器 API。
+  // iOS 上 fetch 可能永远不落地（连接被路由器/系统静默丢弃时 abort 也叫
+  // 不醒它），那样并发槽就再也不会释放。超时就把这一轮作废：gen 递增让
+  // 旧循环自己退出，槽位立刻还回去重新排队，从服务端已收的字节接着传。
+  var STALL_MS = 25000;
+  var MAX_ATTEMPTS = 5;
+
+  setInterval(function () {
+    var now = Date.now();
+    for (var i = 0; i < queue.length; i++) {
+      var it = queue[i];
+      if (!it.running || it.done) continue;
+      if (now - (it.progressAt || 0) < STALL_MS) continue;
+      it.gen++;
+      it.running = false;
+      it.attempts = (it.attempts || 0) + 1;
+      active--;
+      if (it.attempts > MAX_ATTEMPTS) {
+        setState(it, '失败 · 点此重试', 'err');
+        (function (item) {
+          item.el.state.onclick = function () {
+            item.el.state.onclick = null;
+            item.attempts = 0;
+            setState(item, '等待中', 'work');
+            pump();
+          };
+        })(it);
+      } else {
+        setState(it, '重试中…', 'work');
+      }
+      pump();
+    }
+  }, 2000);
 
   function addFiles(files) {
     Array.prototype.forEach.call(files, function (file) {
@@ -420,6 +484,9 @@
         el: { root: el, mini: fill, state: state },
         done: false,
         running: false,
+        gen: 0,
+        attempts: 0,
+        progressAt: 0,
       });
     });
     if (queue.length) pump();

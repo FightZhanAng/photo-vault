@@ -65,6 +65,86 @@ const PHONE_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="
   <text x="180" y="1620" font-family="Segoe UI, Arial" font-size="190" fill="#f2f5f7">PHONE</text>
 </svg>`;
 
+/**
+ * 拼一段最小的 EXIF APP1，只带 GPS（北纬/东经）。
+ * Windows 壁纸本身没有 EXIF，而「定位解析」是踩过坑的地方：readExif 曾经用
+ * pick 白名单把整个 GPS 块跳过，所有照片的 gps 都是 null，却没有任何断言拦下来。
+ * 这里手动塞进去，让 e2e 能真的验到。
+ */
+function gpsApp1(lat, lon) {
+  const tiff = Buffer.alloc(128);
+  tiff.write('II', 0, 'ascii');
+  tiff.writeUInt16LE(0x2a, 2);
+  tiff.writeUInt32LE(8, 4);
+
+  // IFD0 @8：只放一个「GPS IFD 指针」(0x8825)，next IFD = 0
+  tiff.writeUInt16LE(1, 8);
+  tiff.writeUInt16LE(0x8825, 10);
+  tiff.writeUInt16LE(4, 12);
+  tiff.writeUInt32LE(1, 14);
+  tiff.writeUInt32LE(26, 18);
+  tiff.writeUInt32LE(0, 22);
+
+  // GPS IFD @26：纬度参考/纬度/经度参考/经度，next = 0
+  let p = 26;
+  tiff.writeUInt16LE(4, p);
+  p += 2;
+  const entry = (tag, type, count, val) => {
+    tiff.writeUInt16LE(tag, p);
+    tiff.writeUInt16LE(type, p + 2);
+    tiff.writeUInt32LE(count, p + 4);
+    val.copy(tiff, p + 8);
+    p += 12;
+  };
+  const ascii = (s) => {
+    const b = Buffer.alloc(4);
+    b.write(s, 0, 'ascii');
+    return b;
+  };
+  const ptr = (n) => {
+    const b = Buffer.alloc(4);
+    b.writeUInt32LE(n);
+    return b;
+  };
+  const dms = (v) => {
+    const d = Math.floor(v);
+    const mf = (v - d) * 60;
+    const m = Math.floor(mf);
+    const s = Math.round((mf - m) * 60 * 100);
+    return [
+      [d, 1],
+      [m, 1],
+      [s, 100],
+    ];
+  };
+
+  entry(0x0001, 2, 2, ascii('N\0'));
+  entry(0x0002, 5, 3, ptr(80));
+  entry(0x0003, 2, 2, ascii('E\0'));
+  entry(0x0004, 5, 3, ptr(104));
+  tiff.writeUInt32LE(0, p);
+
+  let o = 80;
+  for (const [num, den] of [...dms(lat), ...dms(lon)]) {
+    tiff.writeUInt32LE(num, o);
+    tiff.writeUInt32LE(den, o + 4);
+    o += 8;
+  }
+
+  const head = Buffer.alloc(4);
+  head.writeUInt16BE(0xffe1, 0);
+  head.writeUInt16BE(2 + 6 + tiff.length, 2);
+  return Buffer.concat([head, Buffer.from('Exif\0\0', 'ascii'), tiff]);
+}
+
+/** 把 GPS 段插到 SOI 之后；文件本来带 EXIF 就跳过 */
+function injectGps(file, lat, lon) {
+  const buf = fs.readFileSync(file);
+  if (buf[2] === 0xff && buf[3] === 0xe1) return false;
+  fs.writeFileSync(file, Buffer.concat([buf.subarray(0, 2), gpsApp1(lat, lon), buf.subarray(2)]));
+  return true;
+}
+
 (async () => {
   clearFiles(DATA);
   clearFiles(PHONE);
@@ -77,6 +157,8 @@ const PHONE_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="
       .resize({ width: WIDTHS[i % WIDTHS.length], withoutEnlargement: true })
       .jpeg({ quality: 88 })
       .toFile(file);
+    // 第一张塞 GPS，专测定位解析；必须在 utimesSync 之前，否则 mtime 会被写坏
+    if (i === 0) injectGps(file, 22.5431, 114.0579);
     const d = dateFor(i);
     fs.utimesSync(file, d, d);
     made.push(file);

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { AppInfo, LibraryAnalysis, UpdateCheck } from '@shared/ipc';
+import type { AppInfo, LibraryAnalysis, RefreshMetaResult, UpdateCheck } from '@shared/ipc';
 import { api, errorText, unwrap } from '../api';
 import { PREF, prefBool, useApp } from '../store';
 import { THEMES } from '../theme';
@@ -32,6 +32,8 @@ export default function SettingsPage() {
   const [confirmClear, setConfirmClear] = useState(false);
   const [confirmSwitch, setConfirmSwitch] = useState(false);
   const [showNotes, setShowNotes] = useState(false);
+  const [refreshingMeta, setRefreshingMeta] = useState(false);
+  const [metaResult, setMetaResult] = useState<RefreshMetaResult | null>(null);
 
   const autoKeep = prefBool(prefs, PREF.autoKeep, false);
   const minKb = prefs[PREF.minKb] ?? '1';
@@ -43,6 +45,20 @@ export default function SettingsPage() {
 
   const commitPref = (patch: Record<string, string>): void => {
     setPref(patch).catch((e) => showToast(errorText(e)));
+  };
+
+  const runRefreshMeta = async (): Promise<void> => {
+    setRefreshingMeta(true);
+    try {
+      const r = await unwrap(api.photo.refreshMeta());
+      setMetaResult(r);
+      bumpData();
+      showToast(r.located ? `已补读 ${r.located} 张照片的定位` : '元数据已更新，没有发现新的定位信息');
+    } catch (e) {
+      showToast(errorText(e));
+    } finally {
+      setRefreshingMeta(false);
+    }
   };
 
   useEffect(() => {
@@ -276,6 +292,24 @@ export default function SettingsPage() {
                 切换 / 打开其它库
               </button>
               <span className="hint">切换不会删除任何数据，随时可以再打开</span>
+            </div>
+            <div className="row" style={{ marginTop: 10 }}>
+              <button
+                className="btn"
+                onClick={() => {
+                  void runRefreshMeta();
+                }}
+                disabled={refreshingMeta}
+              >
+                {refreshingMeta ? '读取中…' : '重新读取元数据'}
+              </button>
+              <span className="hint">
+                {metaResult
+                  ? `扫描 ${metaResult.scanned} 张，${metaResult.located} 张有定位` +
+                    (metaResult.failed ? `，${metaResult.failed} 张读不出来` : '') +
+                    (metaResult.missing ? `，${metaResult.missing} 张文件已不在` : '')
+                  : '从原文件补读拍摄时间、机型、经纬度；只填空位，不覆盖已有值'}
+              </span>
             </div>
           </div>
 

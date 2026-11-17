@@ -71,6 +71,7 @@ const api: VaultApi = {
     },
     savePoster: (input) => call(CH.photo.savePoster, input),
     locations: (precision) => call(CH.photo.locations, precision),
+    refreshMeta: (ids) => call(CH.photo.refreshMeta, ids),
   },
   inbox: {
     stats: () => call(CH.inbox.stats),

@@ -177,7 +177,11 @@ export default function LocationsPage() {
           <div className="empty-state">
             <span className="empty-index">00</span>
             <h2>还没有带定位的照片</h2>
-            <p>手机拍摄的照片一般带 GPS；导入后这里会按位置聚成一个个地方。</p>
+            <p>
+              手机拍摄的照片一般带 GPS，导入后这里会按位置聚成一个个地方。
+              如果照片本身有位置却没显示，去「设置 → 媒体库 → 重新读取元数据」补读一次：
+              元数据只在导入那一刻解析，早先入库的照片不会自己更新。
+            </p>
           </div>
         </div>
       ) : (

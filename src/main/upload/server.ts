@@ -250,6 +250,18 @@ function listen(p: number): Promise<Server> {
       s.on('error', (e) => {
         lastError = e.message;
       });
+
+      // Node 默认 keepAliveTimeout 是 5 秒。手机传分片时，两次请求之间
+      // 只要隔了 5 秒以上（切后台、锁屏、网络抖一下、正好在解码视频），
+      // 服务端就会把这条空闲连接关掉。而 iOS 的 fetch 会去复用这条已经
+      // 死掉的连接：请求发进黑洞，既不 resolve 也不 reject，abort() 也
+      // 不一定叫得醒它 —— 表现就是进度条一动不动地「上传中…」。
+      // 客户端那边另有一道看门狗兜底，但根上得先别把连接关得太早。
+      s.keepAliveTimeout = 65_000;
+      s.headersTimeout = 66_000; // 必须略大于 keepAliveTimeout
+      s.requestTimeout = 120_000; // 单个分片最慢给 2 分钟，256KB 足够宽
+      s.on('connection', (socket) => socket.setKeepAlive(true, 10_000));
+
       resolve(s);
     });
   });

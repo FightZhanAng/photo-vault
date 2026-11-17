@@ -16,6 +16,7 @@ import { clearCache } from '../media/cache';
 import { exportPhotos } from '../media/exporter';
 import { exportHtmlAlbum } from '../media/htmlAlbum';
 import { renamePhotos, previewRename } from '../media/renamer';
+import { refreshPhotoMeta } from '../media/refresh';
 import { saveVideoPoster } from '../media/poster';
 import { forgetRecent, readRecent, rememberLibrary } from '../recent';
 import {
@@ -211,6 +212,7 @@ export function registerIpc(): void {
   );
   handle(CH.photo.savePoster, (input: any) => saveVideoPoster(input));
   handle(CH.photo.locations, (precision?: number) => photoRepo.locations(precision));
+  handle(CH.photo.refreshMeta, (ids?: number[]) => refreshPhotoMeta(ids));
 
   // ---------------- inbox ----------------
   handle(CH.inbox.stats, () => {

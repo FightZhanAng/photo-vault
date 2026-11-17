@@ -437,6 +437,14 @@ export interface LocationCluster {
   coverThumbUrl: string;
 }
 
+/** 重新读取元数据的结果；located 是有经纬度的张数 */
+export interface RefreshMetaResult {
+  scanned: number;
+  located: number;
+  failed: number;
+  missing: number;
+}
+
 // ---------------------------------------------------------------------------
 // 批量改名
 // ---------------------------------------------------------------------------
@@ -637,6 +645,7 @@ export const CH = {
     exportProgress: 'photo:exportProgress', // 主 → 渲染 事件
     savePoster: 'photo:savePoster',
     locations: 'photo:locations',
+    refreshMeta: 'photo:refreshMeta',
   },
   inbox: {
     stats: 'inbox:stats',
@@ -738,6 +747,8 @@ export interface VaultApi {
     savePoster(input: VideoPosterInput): Promise<IpcResult<{ ok: boolean }>>;
     /** 按 GPS 网格聚合出的地点列表，按照片数从多到少 */
     locations(precision?: number): Promise<IpcResult<LocationCluster[]>>;
+    /** 按原文件重读 EXIF，补上时间/机型/经纬度（只填空位，不覆盖已有值） */
+    refreshMeta(ids?: number[]): Promise<IpcResult<RefreshMetaResult>>;
   };
   inbox: {
     stats(): Promise<IpcResult<InboxStats>>;
