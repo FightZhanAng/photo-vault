@@ -45,7 +45,15 @@ interface ExifLike {
 export async function readExif(filePath: string): Promise<ExifLike> {
   try {
     const data = (await exifr.parse(filePath, {
-      pick: ['DateTimeOriginal', 'CreateDate', 'Make', 'Model', 'LensModel', 'Orientation'],
+      // 这里不能用 pick 收窄：exifr 是拿 pick 决定「读哪些 IFD」的，
+      // 白名单里没有 GPS 标签时它连 GPS 块都不解析，gps: true 形同虚设。
+      // 实测 pick 只写时间/机型时，明确带 GPS 的照片返回 undefined。
+      // 代价只是多读几个 IFD，几毫秒的事；icc/iptc 才是真正费时的，关掉。
+      tiff: true,
+      xmp: true,
+      icc: false,
+      iptc: false,
+      jfif: false,
       gps: true,
       reviveValues: true,
     })) as ExifLike | undefined;
