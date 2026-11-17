@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>{{TITLE}}</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  :root {
+    --bg: #121316; --panel: #1a1c21; --border: #2a2e36;
+    --text: #e9eaee; --dim: #a2a8b3; --faint: #707684; --accent: #e0a458;
+  }
+  html, body { margin: 0; background: var(--bg); color: var(--text); }
+  body {
+    font-family: system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  header {
+    padding: 44px 32px 22px;
+    max-width: 1400px; margin: 0 auto;
+  }
+  h1 { margin: 0; font-size: 26px; font-weight: 500; letter-spacing: 0.01em; }
+  .sub { margin-top: 8px; color: var(--faint); font-size: 13px; }
+  .sub b { color: var(--dim); font-weight: 500; }
+  main { max-width: 1400px; margin: 0 auto; padding: 0 32px 72px; }
+  #grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+    gap: 10px;
+  }
+  .cell {
+    position: relative; display: block; overflow: hidden;
+    border-radius: 8px; background: var(--panel); cursor: zoom-in;
+    aspect-ratio: 1 / 1;
+  }
+  .cell img {
+    width: 100%; height: 100%; object-fit: cover; display: block;
+    transition: transform 0.35s ease, opacity 0.3s;
+    opacity: 0;
+  }
+  .cell img.on { opacity: 1; }
+  .cell:hover img { transform: scale(1.03); }
+  .cell .cap {
+    position: absolute; inset: auto 0 0 0; padding: 22px 10px 8px;
+    font-size: 11px; color: #e7e8eb;
+    background: linear-gradient(to top, rgba(0,0,0,0.66), transparent);
+    opacity: 0; transition: opacity 0.2s;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .cell:hover .cap { opacity: 1; }
+  footer { text-align: center; color: var(--faint); font-size: 12px; padding: 0 0 40px; }
+
+  #lb {
+    position: fixed; inset: 0; background: #08090b; z-index: 50;
+    display: none; flex-direction: column;
+  }
+  #lb.open { display: flex; }
+  #lb .stage { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; padding: 18px; }
+  #lb img { max-width: 100%; max-height: 100%; object-fit: contain; }
+  #lb .bar {
+    height: 58px; flex-shrink: 0; border-top: 1px solid var(--border);
+    display: flex; align-items: center; gap: 14px; padding: 0 18px;
+    font-size: 12px; color: var(--dim);
+  }
+  #lb .bar .name { color: var(--text); }
+  #lb .bar .grow { flex: 1; }
+  #lb button {
+    height: 32px; padding: 0 12px; border-radius: 8px; cursor: pointer;
+    background: #22252b; color: var(--text); border: 1px solid var(--border);
+    font-size: 12.5px; font-family: inherit;
+  }
+  #lb button:hover { background: #2c3038; }
+  #lb .x { position: absolute; top: 14px; right: 16px; z-index: 2; }
+  @media (max-width: 640px) {
+    header { padding: 26px 16px 14px; }
+    h1 { font-size: 20px; }
+    main { padding: 0 16px 48px; }
+    #grid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 6px; }
+    #lb .bar { font-size: 11px; gap: 8px; padding: 0 12px; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>{{TITLE}}</h1>
+  <div class="sub">{{SUBTITLE}}</div>
+</header>
+<main><div id="grid"></div></main>
+<footer>由「相册收集站」导出 · 本页离线可用</footer>
+
+<div id="lb" aria-hidden="true">
+  <div class="stage"><img id="lb-img" alt="" /></div>
+  <div class="bar">
+    <span class="name" id="lb-name"></span>
+    <span id="lb-meta"></span>
+    <span class="grow"></span>
+    <span id="lb-count"></span>
+    <button id="lb-prev">上一张</button>
+    <button id="lb-next">下一张</button>
+  </div>
+  <button class="x" id="lb-close">关闭</button>
+</div>
+
+<script>
+  var ITEMS = {{ITEMS}};
+  var grid = document.getElementById('grid');
+
+  function fmtDate(ts) {
+    if (!ts) return '';
+    var d = new Date(ts);
+    var p = function (n) { return String(n).padStart(2, '0'); };
+    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+  }
+
+  ITEMS.forEach(function (it, i) {
+    var a = document.createElement('a');
+    a.className = 'cell';
+    a.href = it.f;
+    a.dataset.index = String(i);
+    var img = document.createElement('img');
+    img.src = it.f;
+    img.alt = it.n;
+    img.loading = 'lazy';
+    if (it.w && it.h) { img.width = it.w; img.height = it.h; }
+    img.onload = function () { img.classList.add('on'); };
+    img.onerror = function () { img.classList.add('on'); img.style.opacity = '0.25'; };
+    var cap = document.createElement('span');
+    cap.className = 'cap';
+    cap.textContent = it.n;
+    a.appendChild(img);
+    a.appendChild(cap);
+    a.addEventListener('click', function (e) {
+      e.preventDefault();
+      open(i);
+    });
+    grid.appendChild(a);
+  });
+
+  var lb = document.getElementById('lb');
+  var lbImg = document.getElementById('lb-img');
+  var lbName = document.getElementById('lb-name');
+  var lbMeta = document.getElementById('lb-meta');
+  var lbCount = document.getElementById('lb-count');
+  var cur = 0;
+
+  function show(i) {
+    cur = (i + ITEMS.length) % ITEMS.length;
+    var it = ITEMS[cur];
+    lbImg.src = it.f;
+    lbImg.alt = it.n;
+    lbName.textContent = it.n;
+    lbMeta.textContent = fmtDate(it.d) + (it.w ? ' · ' + it.w + '×' + it.h : '');
+    lbCount.textContent = (cur + 1) + ' / ' + ITEMS.length;
+  }
+
+  function open(i) {
+    show(i);
+    lb.classList.add('open');
+    lb.setAttribute('aria-hidden', 'false');
+  }
+  function close() {
+    lb.classList.remove('open');
+    lb.setAttribute('aria-hidden', 'true');
+    lbImg.removeAttribute('src');
+  }
+
+  document.getElementById('lb-close').addEventListener('click', close);
+  document.getElementById('lb-prev').addEventListener('click', function () { show(cur - 1); });
+  document.getElementById('lb-next').addEventListener('click', function () { show(cur + 1); });
+  lb.querySelector('.stage').addEventListener('click', function (e) {
+    if (e.target === e.currentTarget) close();
+  });
+  document.addEventListener('keydown', function (e) {
+    if (!lb.classList.contains('open')) return;
+    if (e.key === 'Escape') close();
+    else if (e.key === 'ArrowLeft') show(cur - 1);
+    else if (e.key === 'ArrowRight') show(cur + 1);
+  });
+</script>
+</body>
+</html>

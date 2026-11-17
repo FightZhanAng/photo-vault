@@ -1,0 +1,363 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#f6f4f0" />
+<title>上传照片</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  :root {
+    --bg: #f6f4f0;
+    --card: #ffffff;
+    --text: #1e1c19;
+    --dim: #77716a;
+    --faint: #a49d94;
+    --line: #e7e2d9;
+    --accent: #b0762f;
+    --accent-soft: #f6ecdc;
+    --ok: #3f7d56;
+    --danger: #b4463f;
+  }
+  html, body { margin: 0; background: var(--bg); color: var(--text); }
+  body {
+    font-family: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    -webkit-font-smoothing: antialiased;
+    padding-bottom: calc(28px + env(safe-area-inset-bottom));
+  }
+  .wrap { max-width: 560px; margin: 0 auto; padding: 26px 18px 0; }
+
+  .kicker {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 11.5px; letter-spacing: 0.08em; color: var(--accent);
+    background: var(--accent-soft); padding: 4px 10px; border-radius: 999px;
+  }
+  h1 { font-size: 24px; line-height: 1.3; margin: 14px 0 6px; font-weight: 600; letter-spacing: -0.01em; }
+  .note { margin: 0; color: var(--dim); font-size: 13.5px; line-height: 1.65; white-space: pre-wrap; }
+
+  .statcard {
+    margin-top: 18px; background: var(--card); border: 1px solid var(--line);
+    border-radius: 14px; padding: 14px 16px;
+  }
+  .statline { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+  .statline b { font-size: 19px; font-weight: 600; letter-spacing: -0.01em; }
+  .statline span { font-size: 12.5px; color: var(--faint); }
+  .bar { margin-top: 10px; height: 6px; border-radius: 3px; background: #efeae1; overflow: hidden; }
+  .bar i { display: block; height: 100%; width: 0; background: var(--accent); border-radius: 3px; transition: width 0.35s; }
+  .deadline { margin-top: 9px; font-size: 12px; color: var(--faint); }
+
+  .who {
+    display: flex; align-items: center; gap: 10px; margin-top: 18px;
+    background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+    padding: 12px 14px;
+  }
+  .who span { font-size: 13px; color: var(--dim); white-space: nowrap; }
+  .who input {
+    flex: 1; min-width: 0; border: none; outline: none; background: transparent;
+    font: inherit; font-size: 14px; color: var(--text); padding: 2px 0;
+  }
+  .who input::placeholder { color: var(--faint); }
+
+  .pick {
+    margin-top: 12px; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 4px; padding: 26px 16px; cursor: pointer;
+    background: var(--card); border: 1.5px dashed #d8cfc0; border-radius: 16px;
+    transition: border-color 0.15s, background 0.15s;
+  }
+  .pick:active { background: #fbfaf7; border-color: var(--accent); }
+  .pick .icon { width: 34px; height: 34px; color: var(--accent); margin-bottom: 4px; }
+  .pick .t { font-size: 15px; font-weight: 600; }
+  .pick .s { font-size: 12px; color: var(--faint); }
+
+  .queue { margin-top: 18px; display: flex; flex-direction: column; gap: 10px; }
+  .item {
+    display: flex; gap: 11px; align-items: center;
+    background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 10px;
+  }
+  .thumb {
+    width: 46px; height: 46px; border-radius: 8px; object-fit: cover;
+    background: #efebe4; flex-shrink: 0;
+  }
+  .meta { flex: 1; min-width: 0; }
+  .meta .name { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .meta .sub { margin-top: 3px; font-size: 11.5px; color: var(--faint); }
+  .mini { margin-top: 6px; height: 3px; background: #efeae1; border-radius: 2px; overflow: hidden; }
+  .mini i { display: block; height: 100%; width: 0; background: var(--accent); transition: width 0.25s; }
+  .state { font-size: 11.5px; flex-shrink: 0; padding-left: 4px; }
+  .state.ok { color: var(--ok); }
+  .state.dup { color: var(--accent); }
+  .state.err { color: var(--danger); cursor: pointer; text-decoration: underline; }
+  .state.work { color: var(--faint); }
+
+  .foot { margin-top: 26px; text-align: center; color: var(--faint); font-size: 11.5px; line-height: 1.7; }
+  .toast {
+    position: fixed; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom));
+    transform: translateX(-50%) translateY(12px);
+    background: #2a2723; color: #f6f4f0; padding: 9px 16px; border-radius: 10px;
+    font-size: 12.5px; opacity: 0; pointer-events: none; transition: opacity 0.2s, transform 0.2s;
+    max-width: calc(100vw - 40px); text-align: center;
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <span class="kicker">相册收集</span>
+  <h1 id="title">正在连接…</h1>
+  <p class="note" id="note"></p>
+
+  <div class="statcard">
+    <div class="statline">
+      <b id="received">—</b>
+      <span id="target"></span>
+    </div>
+    <div class="bar"><i id="fill"></i></div>
+    <div class="deadline" id="deadline"></div>
+  </div>
+
+  <label class="who">
+    <span>你的名字</span>
+    <input id="uploader" maxlength="24" placeholder="方便我认出是谁传的" autocomplete="name" />
+  </label>
+
+  <label class="pick" for="file">
+    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="3" y="7" width="18" height="13" rx="3" />
+      <circle cx="12" cy="13.5" r="3.6" />
+      <path d="M8.5 7 10 4.5h4L15.5 7" />
+    </svg>
+    <span class="t">选择照片</span>
+    <span class="s">可以多选，原图上传</span>
+  </label>
+  <input id="file" class="hidden" type="file" accept="image/*,.heic,.heif" multiple />
+
+  <div class="queue" id="queue"></div>
+
+  <div class="foot">照片直接传到同一局域网里的电脑<br />不经过互联网，关掉页面不会丢已传完的</div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+(function () {
+  var TOKEN = new URLSearchParams(location.search).get('t') || '';
+  var CHUNK = 512 * 1024;
+  var MAX_ACTIVE = 2;
+  var queue = [];
+  var active = 0;
+  var info = null;
+
+  var $ = function (id) { return document.getElementById(id); };
+  var nameInput = $('uploader');
+  var toastTimer = null;
+
+  function toast(msg) {
+    var el = $('toast');
+    el.textContent = msg;
+    el.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { el.classList.remove('show'); }, 2400);
+  }
+
+  function fmtSize(n) {
+    if (n > 1024 * 1024) return (n / 1024 / 1024).toFixed(1) + ' MB';
+    return Math.max(1, Math.round(n / 1024)) + ' KB';
+  }
+
+  function fmtDeadline(ts) {
+    if (!ts) return '没有截止时间';
+    var d = new Date(ts);
+    return '截止 ' + d.getMonth() + 1 + ' 月 ' + d.getDate() + ' 日 ' +
+      String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+  }
+
+  function renderInfo(data) {
+    info = data;
+    $('title').textContent = data.name;
+    $('note').textContent = data.note || '';
+    $('note').classList.toggle('hidden', !data.note);
+    $('received').textContent = '已收 ' + data.received + ' 张';
+    $('target').textContent = data.targetCount ? '目标 ' + data.targetCount + ' 张' : '';
+    $('deadline').textContent = fmtDeadline(data.deadlineAt) + (data.state === 'closed' ? ' · 已结束' : '');
+    var pct = data.targetCount ? Math.min(100, Math.round((data.received / data.targetCount) * 100)) : 0;
+    $('fill').style.width = pct + '%';
+    if (data.state === 'closed') {
+      $('file').disabled = true;
+      document.querySelector('.pick').classList.add('hidden');
+    }
+  }
+
+  async function loadInfo(silent) {
+    try {
+      var res = await fetch('/api/info?t=' + encodeURIComponent(TOKEN), { cache: 'no-store' });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      renderInfo(await res.json());
+    } catch (e) {
+      if (!silent) {
+        $('title').textContent = '链接不可用';
+        $('note').textContent = '这个上传地址已失效，或者电脑上的收集服务没有启动。请让发起人重新给你链接。';
+      }
+    }
+  }
+
+  function setState(item, text, cls) {
+    item.el.state.textContent = text;
+    item.el.state.className = 'state ' + (cls || '');
+  }
+
+  function setProgress(item, ratio) {
+    item.el.mini.style.width = Math.round(ratio * 100) + '%';
+  }
+
+  async function postJSON(url, body) {
+    var res = await fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    var json = await res.json().catch(function () { return {}; });
+    if (!res.ok) {
+      var err = new Error(json.error || ('HTTP ' + res.status));
+      err.status = res.status;
+      throw err;
+    }
+    return json;
+  }
+
+  async function uploadOnce(item) {
+    var uploader = nameInput.value.trim();
+    var init = await postJSON('/api/init', {
+      token: TOKEN,
+      name: item.file.name,
+      size: item.file.size,
+      lastModified: item.file.lastModified || 0,
+      uploader: uploader,
+    });
+    var offset = init.offset || 0;
+    setProgress(item, offset / item.file.size);
+
+    while (offset < item.file.size) {
+      var end = Math.min(offset + CHUNK, item.file.size);
+      var blob = item.file.slice(offset, end);
+      var res = await fetch('/api/chunk?uploadId=' + encodeURIComponent(init.uploadId) +
+        '&offset=' + offset, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/octet-stream' },
+        body: blob,
+      });
+      if (res.status === 409) {
+        var j = await res.json().catch(function () { return {}; });
+        offset = typeof j.offset === 'number' ? j.offset : 0;
+        continue;
+      }
+      if (!res.ok) throw new Error('上传中断（' + res.status + '）');
+      var data = await res.json();
+      offset = data.received;
+      setProgress(item, offset / item.file.size);
+      setState(item, Math.round((offset / item.file.size) * 100) + '%', 'work');
+    }
+
+    var done = await postJSON('/api/complete', { uploadId: init.uploadId });
+    item.done = true;
+    setProgress(item, 1);
+    if (done.deduped) {
+      setState(item, '已存在', 'dup');
+    } else {
+      setState(item, '已收', 'ok');
+    }
+    loadInfo(true);
+    return true;
+  }
+
+  async function runItem(item) {
+    for (var attempt = 0; attempt < 3; attempt++) {
+      try {
+        await uploadOnce(item);
+        return;
+      } catch (e) {
+        if (attempt === 2) {
+          setState(item, '失败 · 点此重试', 'err');
+          item.el.state.onclick = function () {
+            item.el.state.onclick = null;
+            setState(item, '等待中', 'work');
+            pump();
+          };
+          return;
+        }
+        await new Promise(function (r) { setTimeout(r, 900 * (attempt + 1)); });
+      }
+    }
+  }
+
+  function pump() {
+    while (active < MAX_ACTIVE) {
+      var next = queue.find(function (it) { return !it.done && !it.running; });
+      if (!next) return;
+      next.running = true;
+      active++;
+      runItem(next).finally(function () {
+        active--;
+        next.running = false;
+        pump();
+      });
+    }
+  }
+
+  function addFiles(files) {
+    Array.prototype.forEach.call(files, function (file) {
+      if (!file.type.startsWith('image/') && !/\.(hei[cf])$/i.test(file.name)) return;
+      var el = document.createElement('div');
+      el.className = 'item';
+      var img = document.createElement('img');
+      img.className = 'thumb';
+      img.alt = '';
+      img.src = URL.createObjectURL(file);
+      var meta = document.createElement('div');
+      meta.className = 'meta';
+      var nm = document.createElement('div');
+      nm.className = 'name';
+      nm.textContent = file.name;
+      var sub = document.createElement('div');
+      sub.className = 'sub';
+      sub.textContent = fmtSize(file.size);
+      var mini = document.createElement('div');
+      mini.className = 'mini';
+      var fill = document.createElement('i');
+      mini.appendChild(fill);
+      meta.appendChild(nm);
+      meta.appendChild(sub);
+      meta.appendChild(mini);
+      var state = document.createElement('span');
+      state.className = 'state work';
+      state.textContent = '等待中';
+      el.appendChild(img);
+      el.appendChild(meta);
+      el.appendChild(state);
+      $('queue').appendChild(el);
+
+      queue.push({
+        file: file,
+        el: { root: el, mini: fill, state: state },
+        done: false,
+        running: false,
+      });
+    });
+    if (queue.length) pump();
+  }
+
+  $('file').addEventListener('change', function (e) {
+    addFiles(e.target.files);
+    e.target.value = '';
+  });
+
+  var saved = localStorage.getItem('vault-uploader');
+  if (saved) nameInput.value = saved;
+  nameInput.addEventListener('change', function () {
+    localStorage.setItem('vault-uploader', nameInput.value.trim());
+  });
+
+  loadInfo(false);
+})();
+</script>
+</body>
+</html>

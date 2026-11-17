@@ -1,0 +1,10 @@
+# 文本统一按 LF 存进库，检出时走各机的 core.autocrlf
+* text=auto
+
+# 二进制资源：不做换行转换，也不尝试逐行 diff
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.ico binary
+*.webp binary
+*.exe binary

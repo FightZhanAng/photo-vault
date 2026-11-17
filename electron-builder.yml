@@ -1,0 +1,52 @@
+appId: com.photovault.desktop
+productName: PhotoVault
+copyright: Copyright © 2026 PhotoVault
+
+directories:
+  # 用 dist 而不是 release：electron-vite 的 out/ 只是编译中间产物，这里才是交付物
+  output: dist
+  buildResources: build
+
+# 只打运行时要用的东西；源码、测试数据、临时产物都不进包
+files:
+  - '**/*'
+  - '!src/**'
+  - '!test/**'
+  - '!docs/**'
+  - '!dist/**'
+  - '!release/**'
+  - '!build/**'
+  - '!node_modules/.cache/**'
+  - '!**/*.map'
+  - '!_*/**'
+  - '!.workbuddy/**'
+  - '!*.md'
+  - '!electron.vite.config.ts'
+  - '!tsconfig*.json'
+
+asar: true
+# sharp 是原生模块，解包后由 Electron 直接 require，避免 asar 内加载失败
+asarUnpack:
+  - node_modules/sharp/**
+  - node_modules/@img/**
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  icon: build/icon.png
+  artifactName: PhotoVault-${version}-setup.${ext}
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowElevation: true
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: 相册收集站
+  installerLanguages:
+    - zh_CN
+  language: '2052'
+  deleteAppDataOnUninstall: false

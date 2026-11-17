@@ -1,0 +1,20 @@
+node_modules/
+out/
+dist/
+release/
+release2/
+.vault/
+.vite/
+.workbuddy/
+*.local
+*.log
+.DS_Store
+Thumbs.db
+
+# e2e 产物（npm run seed / npm run e2e 会重新生成）
+_data/
+_phone/
+_video/
+_lib/
+_out/
+_shots/
