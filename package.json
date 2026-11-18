@@ -14,7 +14,7 @@
     "seed": "node test/seed.cjs",
     "e2e": "node test/e2e.mjs",
     "e2e:full": "node test/seed.cjs && node test/run.mjs",
-    "dist": "electron-vite build && electron-builder --win"
+    "dist": "electron-vite build && electron-builder --win --publish never"
   },
   "dependencies": {
     "exifr": "^7.1.3",
