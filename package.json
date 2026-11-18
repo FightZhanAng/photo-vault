@@ -1,6 +1,6 @@
 {
   "name": "photo-vault",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "相册收集站 · 本地优先的照片收集与整理工具",
   "main": "./out/main/index.js",
@@ -36,5 +36,16 @@
     "typescript": "^5.9.0",
     "vite": "^7.1.0",
     "zustand": "^5.1.0"
+  },
+  "//overrides": "electron-builder 26.18 的 app-builder-lib 用到了 @electron/get 4.x 的 ElectronDownloadCacheMode，但依赖声明写的是 ^3.0.0（3.x 只有 CacheMode），干净安装必然报 Cannot read properties of undefined (reading 'ReadWrite')。只给 app-builder-lib 这一支钉到 4.0.3，electron 自己的 5.x 不动。",
+  "overrides": {
+    "app-builder-lib": {
+      "@electron/get": "4.0.3"
+    }
+  },
+  "pnpm": {
+    "overrides": {
+      "app-builder-lib>@electron/get": "4.0.3"
+    }
   }
 }

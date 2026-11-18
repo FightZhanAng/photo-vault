@@ -11,3 +11,14 @@ allowBuilds:
   electron: true
   electron-winstaller: true
   esbuild: true
+
+# electron-builder 26.18 的 app-builder-lib 调用了 @electron/get 4.x 才有的
+# ElectronDownloadCacheMode，但自家依赖声明写的是 ^3.0.0（3.x 只有 CacheMode）。
+# pnpm 严格按声明装 3.x，于是打包必挂在
+#   Cannot read properties of undefined (reading 'ReadWrite')
+# npm 的扁平提升碰巧掩盖了这个问题。这里只钉 app-builder-lib 这一支，
+# electron 自己用的 5.x 不能动（API 不同）。
+# 注意：pnpm 11 不再读 package.json 里的 pnpm.overrides，只认这个文件；
+# CI 走 npm ci，对应配置写在 package.json 的 overrides 里。
+overrides:
+  'app-builder-lib>@electron/get': 4.0.3

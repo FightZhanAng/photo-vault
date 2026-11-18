@@ -52,6 +52,9 @@ jobs:
           files: |
             dist/*.exe
             dist/*.exe.blockmap
+          # 中文说明写在 .github/release-notes.md，每次发版前改这个文件；
+          # generate_release_notes 会把按 PR/commit 归类的英文清单追加在后面。
+          body_path: .github/release-notes.md
           generate_release_notes: true
           draft: false
           prerelease: false
