@@ -498,16 +498,87 @@ await run(
    return true;`
 );
 
-await run(
+const viewer = await run(
   cdp,
   `document.querySelector('.photo-cell').click();
    await new Promise(r => setTimeout(r, 1200));
-   return document.querySelector('.viewer') ? 'open' : 'no-viewer';`
+   const btn = document.querySelector('.viewer-close');
+   const r = btn?.getBoundingClientRect();
+   const hit = r
+     ? document.elementFromPoint(Math.round(r.left + r.width / 2), Math.round(r.top + r.height / 2))
+     : null;
+   return {
+     state: document.querySelector('.viewer') ? 'open' : 'no-viewer',
+     top: r ? Math.round(r.top) : -1,
+     right: r ? Math.round(innerWidth - r.right) : -1,
+     hit: hit?.className ?? '',
+   };`
 );
+assert(viewer.state === 'open', '大图能打开', viewer.state);
+// 右上角 40px 高、152px 宽那块是 Windows 的窗口按钮覆盖层，网页内容压在里面点不到
+assert(viewer.top >= 40, '大图关闭按钮让开了窗口按钮', `top=${viewer.top} right=${viewer.right}`);
+assert(viewer.hit === 'viewer-close', '大图关闭按钮点得到', `命中 ${viewer.hit}`);
 await cdp.shot(path.join(SHOTS, '03-viewer.png'));
+
+// 大图里弹出的浮层挂在 .viewer 下面，.viewer 把文字色改成了浅色，
+// 浮层必须自己把主题文字色兜回来，否则浅色主题下是米白压米白
+const popoverColors = await run(
+  cdp,
+  `document.querySelector('.tag-add').click();
+   await new Promise(r => setTimeout(r, 400));
+   const pop = document.querySelector('.popover');
+   const colors = {
+     popover: pop ? getComputedStyle(pop).color : '',
+     body: getComputedStyle(document.body).color,
+   };
+   document.querySelector('.popover-backdrop')?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+   await new Promise(r => setTimeout(r, 250));
+   return colors;`
+);
+assert(
+  popoverColors.popover === popoverColors.body,
+  '大图里的标签浮层用主题文字色',
+  `浮层 ${popoverColors.popover} / 主题 ${popoverColors.body}`
+);
+
 await run(cdp, `window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); await new Promise(r => setTimeout(r, 400)); return true;`);
 
 await clickNav('收藏夹');
+
+// 收藏角标：原来只有一颗 10px 的金色星星直接压在照片上，遇到亮照片或者小格子
+// 就跟没有一样（用户反馈"收藏了看不到标识"）。现在做成左上角的深底胶囊，
+// 这里断言它真的有面积、有底色、且没被格子裁掉。
+const favBadges = await run(
+  cdp,
+  `const cells = [...document.querySelectorAll('.photo-cell')];
+   const badges = cells.map((c) => {
+     const b = c.querySelector('.fav');
+     if (!b) return { has: false };
+     const r = b.getBoundingClientRect();
+     const cr = c.getBoundingClientRect();
+     const cs = getComputedStyle(b);
+     return {
+       has: true,
+       w: Math.round(r.width),
+       h: Math.round(r.height),
+       inside: r.left >= cr.left - 0.5 && r.top >= cr.top - 0.5 && r.right <= cr.right + 0.5,
+       bg: cs.backgroundColor,
+       color: cs.color,
+     };
+   });
+   return { cells: cells.length, badges };`
+);
+assert(
+  favBadges.cells === 3 &&
+    favBadges.badges.every(
+      (b) => b.has && b.h >= 14 && b.w >= 14 && b.inside && /rgba?\(0, 0, 0/.test(b.bg)
+    ),
+  '收藏照片带可见的收藏角标',
+  `${favBadges.cells} 张 → ${favBadges.badges
+    .map((b) => (b.has ? `${b.w}×${b.h} ${b.bg}` : '缺失'))
+    .join(' / ')}`
+);
+
 await cdp.shot(path.join(SHOTS, '04-smart-album.png'));
 
 await clickNav('精选');
@@ -548,6 +619,37 @@ await cdp.shot(path.join(SHOTS, '10-storage.png'));
 await clickNav('设置');
 await sleep(500);
 await cdp.shot(path.join(SHOTS, '11-settings.png'));
+
+// ---------------------------------------------------------------- 侧栏计数跟着收藏走
+// 智能相册的张数是主进程按规则现算的，改完收藏必须重新拉一次相册列表，
+// 否则侧栏那个数字会一直停在上一次
+await clickNav('时间轴');
+await sleep(900);
+const favFlow = await run(
+  cdp,
+  `const read = () =>
+     [...document.querySelectorAll('.nav-item')]
+       .find(b => (b.querySelector('.label')?.textContent ?? '').trim().startsWith('收藏夹'))
+       ?.querySelector('.count')?.textContent ?? '';
+   // 规则里带 status:kept，得挑一张「正式库 + 未收藏」的，否则点星标本来就不会影响这个相册
+   const kept = await window.vault.photo.list({ status: ['kept'], favoriteOnly: false, limit: 50 });
+   const wanted = new Set(kept.data.items.filter((p) => !p.favorite).map((p) => p.fileName));
+   const before = read();
+   const cell = [...document.querySelectorAll('.photo-cell')].find((c) => wanted.has(c.title));
+   const stats = { cells: document.querySelectorAll('.photo-cell').length, picked: cell?.title ?? '' };
+   cell.querySelector('button[title="收藏"]').click();
+   await new Promise(r => setTimeout(r, 900));
+   const afterUp = read();
+   cell.querySelector('button[title="取消收藏"]')?.click();
+   await new Promise(r => setTimeout(r, 900));
+   const afterDown = read();
+   return { before, afterUp, afterDown, ...stats };`
+);
+assert(
+  favFlow.before === '3' && favFlow.afterUp === '4' && favFlow.afterDown === '3',
+  '侧栏相册数量跟着收藏实时变',
+  `${favFlow.before} → 收藏 ${favFlow.afterUp} → 取消 ${favFlow.afterDown}（${favFlow.picked} / 格 ${favFlow.cells}）`
+);
 
 // ---------------------------------------------------------------- 控制台错误
 await sleep(600);

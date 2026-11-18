@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type MouseEvent } from 'react';
 import type { Photo, SimilarPhoto, Tag } from '@shared/ipc';
 import { api, unwrap } from '../api';
 import { useApp } from '../store';
+import { applyTitlebar, applyViewerTitlebar, themeMeta } from '../theme';
 import TagMenu from './TagMenu';
 import { isVideoExt, formatDuration } from '../format';
 import { usePosterDuration } from '../videoPoster';
@@ -42,6 +43,8 @@ export default function PhotoViewer({
   const base = photos[index];
   const refreshTags = useApp((s) => s.refreshTags);
   const showToast = useApp((s) => s.showToast);
+  const bumpData = useApp((s) => s.bumpData);
+  const theme = useApp((s) => s.theme);
 
   /** 从「找相似」点进来时临时显示另一张，不改变当前列表的位置 */
   const [shown, setShown] = useState<Photo | null>(null);
@@ -92,6 +95,12 @@ export default function PhotoViewer({
     setSimilar(null);
   }, [base?.id]);
 
+  // 全屏暗底期间让窗口按钮也变暗，关掉后把主题色还回去
+  useEffect(() => {
+    applyViewerTitlebar();
+    return () => applyTitlebar(themeMeta(theme).titlebar);
+  }, [theme]);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if (e.key === 'Escape') {
@@ -117,11 +126,12 @@ export default function PhotoViewer({
         void api.photo.patch(photo.id, { rating: value }).catch((err) => {
           showToast(err instanceof Error ? err.message : String(err));
         });
+        bumpData();
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [onClose, step, onKeep, onReject, photo, showToast]);
+  }, [onClose, step, onKeep, onReject, photo, showToast, bumpData]);
 
   if (!photo) return null;
 
@@ -130,6 +140,7 @@ export default function PhotoViewer({
     setRating(next);
     try {
       await unwrap(api.photo.patch(photo.id, { rating: next }));
+      bumpData();
     } catch (e) {
       showToast(e instanceof Error ? e.message : String(e));
     }
@@ -140,6 +151,7 @@ export default function PhotoViewer({
       await unwrap(api.tag.detach([photo.id], tag.id));
       setTags((prev) => prev.filter((t) => t.id !== tag.id));
       await refreshTags();
+      bumpData();
     } catch (e) {
       showToast(e instanceof Error ? e.message : String(e));
     }

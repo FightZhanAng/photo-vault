@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { Photo } from '@shared/ipc';
 import { isVideoExt } from '../format';
+import { useApp } from '../store';
+import { applyTitlebar, applyViewerTitlebar, themeMeta } from '../theme';
 
 function formatTime(ts: number | null): string {
   if (!ts) return '';
@@ -19,6 +21,13 @@ interface SlideshowProps {
 const INTERVAL = 3600;
 
 export default function Slideshow({ photos: all, startIndex = 0, onClose }: SlideshowProps) {
+  const theme = useApp((s) => s.theme);
+  // 幻灯片是纯黑底，窗口按钮跟着变暗，退出后还原主题色
+  useEffect(() => {
+    applyViewerTitlebar();
+    return () => applyTitlebar(themeMeta(theme).titlebar);
+  }, [theme]);
+
   // 幻灯片只放图片：视频有自己的时长和声音，自动翻页会和播放打架
   const photos = useMemo(() => all.filter((p) => !isVideoExt(p.ext)), [all]);
   // 传进来的下标是在「全部照片」里的位置，过滤后要换算成图片里的位置

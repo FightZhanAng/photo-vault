@@ -29,6 +29,7 @@ import {
   uploadServerStatus,
 } from '../upload/server';
 import { rowToBatch } from '../db/mappers';
+import { applyTitlebar } from '../titlebar';
 import { checkUpdate } from '../update';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -105,18 +106,14 @@ export function registerIpc(): void {
     return clearCache(lib.thumbsPath);
   });
 
-  // 主题换到浅色时，窗口右上角的系统按钮必须跟着变深，否则白底白图标看不见
+  // 主题换到浅色时，窗口右上角的系统按钮必须跟着变深，否则白底白图标看不见；
+  // 打开大图/幻灯片时也会推一份暗色过来，让按钮融进全屏黑底
   handle(CH.app.setTitlebar, (theme: any) => {
-    const color = typeof theme?.color === 'string' ? theme.color : '#16171a';
-    const symbolColor = typeof theme?.symbolColor === 'string' ? theme.symbolColor : '#d8d9dd';
-    for (const win of BrowserWindow.getAllWindows()) {
-      try {
-        win.setTitleBarOverlay({ color, symbolColor, height: 40 });
-      } catch {
-        /* 非 Windows 或未启用覆盖层时忽略 */
-      }
-    }
-    return { ok: true };
+    const applied = applyTitlebar({
+      color: typeof theme?.color === 'string' ? theme.color : undefined,
+      symbolColor: typeof theme?.symbolColor === 'string' ? theme.symbolColor : undefined,
+    });
+    return { ok: true, ...applied };
   });
 
   handle(CH.app.checkUpdate, () => checkUpdate());

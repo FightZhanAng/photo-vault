@@ -106,7 +106,13 @@ export const useApp = create<AppState>((set, get) => ({
   density: loadDensity(),
   prefs: {},
 
-  bumpData: () => set((s) => ({ dataVersion: s.dataVersion + 1 })),
+  bumpData: () => {
+    set((s) => ({ dataVersion: s.dataVersion + 1 }));
+    // 相册与标签上的张数是派生数据（智能相册还是按规则现算的），
+    // 任何一次改动都可能让它们变，顺手刷一遍，别让侧栏数字停在上一次
+    void get().refreshAlbums();
+    void get().refreshTags();
+  },
 
   setTheme: (theme) => {
     applyTheme(theme);

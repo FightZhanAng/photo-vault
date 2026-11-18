@@ -136,11 +136,13 @@ export default function InboxPage() {
       try {
         await unwrap(api.photo.patch(id, { favorite: next }));
         setPhotos((prev) => prev.map((p) => (p.id === id ? { ...p, favorite: next } : p)));
+        // 「收藏」这类智能相册的张数按规则现算，改完要重新取一遍
+        bumpData();
       } catch (e) {
         showToast(errorText(e));
       }
     },
-    [showToast]
+    [showToast, bumpData]
   );
 
   const text = TAB_TEXT[tab];

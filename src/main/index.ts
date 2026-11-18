@@ -6,6 +6,7 @@ import { openLibrary } from './db/libraryRepo';
 import { registerIpc } from './ipc/register';
 import { handleVaultProtocol, registerVaultScheme } from './media/protocol';
 import { lastLibraryPath } from './recent';
+import { repaintTitlebar, TITLEBAR_HEIGHT } from './titlebar';
 import { stopUploadServer } from './upload/server';
 
 // 自定义协议必须在 app ready 之前登记
@@ -31,7 +32,7 @@ function createWindow(): void {
     titleBarOverlay: {
       color: '#16171a',
       symbolColor: '#d8d9dd',
-      height: 38,
+      height: TITLEBAR_HEIGHT,
     },
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
@@ -43,9 +44,18 @@ function createWindow(): void {
   });
 
   mainWindow.once('ready-to-show', () => mainWindow?.focus());
+  // 上面构造参数里是启动默认配色，如果已经有主题推送过，按记住的那份来
+  repaintTitlebar();
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
+
+  // 覆盖层配色在最大化/还原/重新聚焦后偶尔会掉回默认值，状态一变就重贴一次
+  const repaint = (): void => repaintTitlebar();
+  mainWindow.on('maximize', repaint);
+  mainWindow.on('unmaximize', repaint);
+  mainWindow.on('restore', repaint);
+  mainWindow.on('focus', repaint);
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith('http://') || url.startsWith('https://')) void shell.openExternal(url);

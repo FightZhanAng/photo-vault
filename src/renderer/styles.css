@@ -65,6 +65,11 @@ body,
 
   --qr-bg: #ffffff;
   --qr-ink: #1d1a15;
+
+  /* 窗口右上角系统按钮（Windows 覆盖层）占掉的高度与宽度，
+     与 main/titlebar.ts 里的 TITLEBAR_HEIGHT 对应 */
+  --wco-h: 40px;
+  --wco-w: 152px;
 }
 
 /* ------------------------------------------------------------ 2. 四套主题 */
@@ -317,7 +322,7 @@ kbd {
   gap: var(--sp-2);
   padding-left: 18px;
   /* 右侧留给 Windows 的最小化/最大化/关闭覆盖层 */
-  padding-right: 152px;
+  padding-right: var(--wco-w);
   background: color-mix(in srgb, var(--surface) 72%, transparent);
   border-bottom: 1px solid var(--line);
   backdrop-filter: blur(10px);
@@ -1153,14 +1158,27 @@ kbd {
   align-items: center;
   justify-content: center;
 }
+/* 收藏角标：和右下角的视频时长同一个做法——压一层深底，
+   否则 10px 的金色星星直接叠在照片上，遇到亮照片就看不见了。
+   放左上角：右上角是多选的对勾，右下角是视频时长，左下角是 hover 操作条。 */
 .photo-cell .fav {
   position: absolute;
-  bottom: 6px;
+  top: 6px;
   left: 6px;
   z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 3px;
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.62);
+  color: #f2c877;
   font-size: 10px;
-  color: var(--accent);
-  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+  line-height: 1;
+  letter-spacing: 0.02em;
+  backdrop-filter: blur(2px);
 }
 
 .hover-actions {
@@ -1364,7 +1382,9 @@ kbd {
 .welcome::before {
   content: "";
   position: absolute;
-  left: 8vw;
+  /* 竖线是左边距上的「书眉线」，要跟正文留出空隙；
+     原先正好落在 8vw（正文左边缘）上，会贴着标题和按钮 */
+  left: calc(8vw - 30px);
   top: 8vh;
   bottom: 8vh;
   width: 1px;
@@ -1378,7 +1398,6 @@ kbd {
   background: var(--accent-soft);
   position: relative;
   margin-bottom: 6px;
-  margin-left: -1px;
 }
 .welcome-mark::after {
   content: "";
@@ -1512,6 +1531,17 @@ kbd {
   color: #f1ece2;
   animation: fade var(--dur-1) ease-out;
 }
+/* 大图铺满整窗，顶部这条留给拖动窗口；系统按钮那块本来就不进网页 */
+.viewer::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--wco-h);
+  z-index: 3;
+  -webkit-app-region: drag;
+}
 @keyframes fade {
   from {
     opacity: 0;
@@ -1561,9 +1591,11 @@ kbd {
 }
 .viewer-close {
   position: absolute;
-  top: 14px;
-  right: 18px;
-  z-index: 2;
+  /* 让开右上角的系统窗口按钮（覆盖层高 --wco-h），否则会被整个盖住点不到 */
+  top: calc(var(--wco-h) + 14px);
+  right: 20px;
+  z-index: 4;
+  -webkit-app-region: no-drag;
   width: 30px;
   height: 30px;
   border-radius: var(--r-2);
@@ -1747,7 +1779,8 @@ kbd {
   display: flex;
   align-items: center;
   gap: 14px;
-  padding: 0 20px;
+  /* 右侧让开系统窗口按钮，否则「退出」被压住点不到 */
+  padding: 0 var(--wco-w) 0 20px;
   color: rgba(241, 236, 226, 0.6);
   font-size: var(--t-sm);
   background: linear-gradient(to bottom, rgba(0, 0, 0, 0.62), transparent);
@@ -1871,6 +1904,9 @@ kbd {
   position: fixed;
   z-index: 400;
   background: var(--surface);
+  /* 弹层可能挂在大图预览里（.viewer 把颜色改成了浅色文字），
+     这里必须显式设主题文字色，否则浅色主题下标签名是米白压米白 */
+  color: var(--text);
   border: 1px solid var(--line-strong);
   border-radius: var(--r-3);
   box-shadow: var(--shadow-3);
@@ -2074,6 +2110,8 @@ kbd {
   max-width: calc(100vw - 40px);
   max-height: 86vh;
   background: var(--surface);
+  /* 同上：从深色预览里打开的弹窗别继承浅色文字 */
+  color: var(--text);
   border: 1px solid var(--line-strong);
   border-radius: var(--r-4);
   box-shadow: var(--shadow-3);

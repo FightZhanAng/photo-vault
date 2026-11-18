@@ -147,11 +147,13 @@ export default function Timeline({ title, kicker = '图库', albumId, tagId, tas
       try {
         await unwrap(api.photo.patch(id, { favorite: next }));
         setPhotos((prev) => prev.map((p) => (p.id === id ? { ...p, favorite: next } : p)));
+        // 智能相册（比如「收藏」）的张数是按规则现算的，改完收藏要重新取一遍
+        bumpData();
       } catch (e) {
         showToast(errorText(e));
       }
     },
-    [showToast]
+    [showToast, bumpData]
   );
 
   const favoriteSelected = async (next: boolean): Promise<void> => {
@@ -159,6 +161,7 @@ export default function Timeline({ title, kicker = '图库', albumId, tagId, tas
     try {
       for (const id of ids) await unwrap(api.photo.patch(id, { favorite: next }));
       setPhotos((prev) => prev.map((p) => (selected.has(p.id) ? { ...p, favorite: next } : p)));
+      bumpData();
       showToast(`已${next ? '收藏' : '取消收藏'} ${ids.length} 张`);
     } catch (e) {
       showToast(errorText(e));

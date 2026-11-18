@@ -105,6 +105,23 @@ export function applyTheme(id: ThemeId): void {
     /* 忽略写入失败 */
   }
   // 浅色主题下窗口右上角按钮必须换深色，否则白底白图标
-  const pending = api?.app?.setTitlebar?.(meta.titlebar);
+  applyTitlebar(meta.titlebar);
+}
+
+/** 同步窗口右上角系统按钮的配色（能力不存在时静默跳过） */
+export function applyTitlebar(colors: { color: string; symbolColor: string }): void {
+  const pending = api?.app?.setTitlebar?.(colors);
   void pending?.catch(() => undefined);
+}
+
+/**
+ * 大图 / 幻灯片是全屏暗底，右上角的系统按钮要跟着变暗。
+ * 否则浅色主题下那里会浮着一块米白色，和整块黑底割裂。
+ */
+export function applyViewerTitlebar(): void {
+  const raw = getComputedStyle(document.documentElement).getPropertyValue('--viewer-bg').trim();
+  applyTitlebar({
+    color: /^#[0-9a-f]{3,8}$/i.test(raw) ? raw : '#0a0908',
+    symbolColor: '#d6cdbf',
+  });
 }
